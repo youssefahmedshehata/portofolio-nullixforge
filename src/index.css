@@ -1,0 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-void: #030304;
+  --color-deep-black: #060708;
+  --color-graphite: #0b0d10;
+  --color-obsidian: #111318;
+  --color-panel-dark: rgba(17, 19, 24, 0.72);
+
+  --color-border-soft: rgba(255, 255, 255, 0.08);
+  --color-border-warm: rgba(255, 126, 57, 0.18);
+  --color-border-gold: rgba(223, 165, 91, 0.14);
+
+  --color-text-main: #f4f0e8;
+  --color-text-muted: #a9a39a;
+  --color-text-faint: #6f6a63;
+
+  --color-ember: #ff6a2a;
+  --color-ember-deep: #a63a16;
+  --color-molten-gold: #dfa55b;
+  --color-heated-ivory: #fff1d2;
+
+  --color-system-line: rgba(223, 165, 91, 0.16);
+  --color-system-dot: rgba(255, 106, 42, 0.55);
+  --color-system-glow: rgba(255, 241, 210, 0.12);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-heading: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', monospace;
+}
+
+:root {
+  --void-black: #030304;
+  --deep-black: #060708;
+  --graphite: #0b0d10;
+  --obsidian: #111318;
+  --panel-dark: rgba(17, 19, 24, 0.72);
+
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --border-warm: rgba(255, 126, 57, 0.18);
+  --border-gold: rgba(223, 165, 91, 0.14);
+
+  --text-main: #f4f0e8;
+  --text-muted: #a9a39a;
+  --text-faint: #6f6a63;
+
+  --ember: #ff6a2a;
+  --ember-deep: #a63a16;
+  --molten-gold: #dfa55b;
+  --heated-ivory: #fff1d2;
+
+  --system-line: rgba(223, 165, 91, 0.16);
+  --system-dot: rgba(255, 106, 42, 0.55);
+  --system-glow: rgba(255, 241, 210, 0.12);
+}
+
+body {
+  background-color: var(--void-black);
+  color: var(--text-main);
+  background-image: linear-gradient(180deg, #030304 0%, #08090b 45%, #030304 100%);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: var(--ember-deep);
+  color: var(--text-main);
+}
+
+/* Animations */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes drift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+@keyframes orbit {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes orbit-reverse {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes float-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.1); }
+}
+
+@keyframes spin-slow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10%, 90% { opacity: 1; }
+  100% { transform: translateY(500px); opacity: 0; }
+}
+
+@keyframes lock-rotate {
+  0%, 15% { transform: rotate(0deg); }
+  25%, 65% { transform: rotate(90deg); }
+  75%, 100% { transform: rotate(180deg); }
+}
+
+@keyframes seed-breathe {
+  0%, 100% { 
+    transform: scale(1) skewX(0deg) skewY(0deg); 
+    border-radius: 40% 60% 60% 40% / 50% 50% 50% 50%;
+  }
+  25% { 
+    transform: scale(0.98, 1.02) skewX(0.5deg); 
+    border-radius: 45% 55% 58% 42% / 48% 52% 48% 52%;
+  }
+  50% { 
+    transform: scale(1.02, 0.99) skewY(-0.5deg); 
+    border-radius: 42% 58% 55% 45% / 52% 48% 52% 48%;
+  }
+  75% { 
+    transform: scale(0.99, 1.01) skewX(-0.5deg); 
+    border-radius: 48% 52% 62% 38% / 50% 50% 50% 50%;
+  }
+}
+
+@keyframes energy-shift {
+  0%, 100% { transform: translate(-10%, -10%); opacity: 0.8; }
+  50% { transform: translate(10%, 10%) scale(1.1); opacity: 1; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.6); opacity: 0; border-width: 1px; }
+  50% { opacity: 1; border-color: rgba(255, 106, 42, 0.15); border-width: 2px; }
+  100% { transform: scale(1.2); opacity: 0; border-width: 1px; }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
