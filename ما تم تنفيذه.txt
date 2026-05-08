@@ -1,0 +1,4647 @@
+لقد تم تنفيذ هذه المرحله بدقه 100% : "أقدر أطبقها على **الكود الذي أرسلته فعليًا الآن**: `main.tsx`, `App.tsx`, `index.css`, `Starfield.tsx`، وأبني لك طبقة `src/superanimation` كاملة.
+لكن لا أقدر أعمل patch حقيقي لملفات لم ترسل محتواها مثل `TileEntityForge.tsx`, `OverlayLayers.tsx`, `Home.tsx`, `Work.tsx`, إلخ. هديك الآن كود جاهز للملفات الجديدة + replacement للملفات التي أرسلتها.
+
+المبدأ المطبق هنا هو نفس معمارية ملفك: **GSAP/التنسيق عند الحاجة، وSilent Compositor للتنفيذ عبر WAAPI + transform/opacity + Shadow State + Physics Compression + Prime Harmonics**. 
+
+---
+
+# الملفات الجديدة التي يجب إنشاؤها
+
+أنشئ هذا المجلد:
+
+```txt
+src/superanimation/
+```
+
+وبداخله هذه الملفات:
+
+```txt
+src/superanimation/types.ts
+src/superanimation/featureSupport.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/CompositorBridge.ts
+src/superanimation/MotionController.ts
+src/superanimation/ProceduralAnimator.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/useSuperAnimation.ts
+src/superanimation/index.ts
+```
+
+---
+
+# 1. `src/superanimation/types.ts`
+
+```ts
+export type SuperAnimationCleanup = () => void;
+
+export type MotionAxis = 'x' | 'y' | 'scale' | 'opacity';
+
+export type NumericMotionState = {
+  position: number;
+  velocity: number;
+};
+
+export type NumericSolver = (elapsedMs: number) => NumericMotionState;
+
+export type SpringParams = {
+  stiffness?: number;
+  damping?: number;
+  mass?: number;
+  duration?: number;
+  precisionMs?: number;
+};
+
+export type BakedScalarMotion = {
+  duration: number;
+  easing: string;
+  solver: NumericSolver;
+  points: Array<{
+    timeMs: number;
+    position: number;
+    velocity: number;
+    progress: number;
+  }>;
+};
+
+export type CompositorAnimationHandle = {
+  animation: Animation | null;
+  cancel: () => void;
+  finish: () => void;
+};
+
+export type CompositorAnimateOptions = KeyframeAnimationOptions & {
+  willChange?: string;
+  cleanupWillChange?: boolean;
+};
+
+export type PrimeHarmonicLayer = {
+  property: string;
+  duration: number;
+  amplitude?: number;
+  phase?: number;
+  resolution?: number;
+};
+```
+
+---
+
+# 2. `src/superanimation/featureSupport.ts`
+
+```ts
+export const canUseDOM = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+export function getTimelineNow(): number {
+  if (!canUseDOM) return 0;
+  return document.timeline.currentTime ?? performance.now();
+}
+
+export function supportsWAAPI(): boolean {
+  return canUseDOM && typeof Element !== 'undefined' && 'animate' in Element.prototype;
+}
+
+export function supportsRegisterProperty(): boolean {
+  return canUseDOM && 'CSS' in window && typeof CSS.registerProperty === 'function';
+}
+
+export function supportsLinearEasing(): boolean {
+  return canUseDOM && 'CSS' in window && CSS.supports?.('animation-timing-function', 'linear(0, 1)') === true;
+}
+
+export function prefersReducedMotion(): boolean {
+  return canUseDOM && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+export function parseMs(value: string | number | undefined | null, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value) return fallback;
+
+  const text = String(value).trim();
+
+  if (text.endsWith('ms')) {
+    const n = Number.parseFloat(text);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  if (text.endsWith('s')) {
+    const n = Number.parseFloat(text);
+    return Number.isFinite(n) ? n * 1000 : fallback;
+  }
+
+  const n = Number.parseFloat(text);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+export function safeCancelAnimation(animation: Animation | null | undefined): void {
+  try {
+    animation?.cancel();
+  } catch {
+    // Browser animation objects may throw if already detached.
+  }
+}
+```
+
+---
+
+# 3. `src/superanimation/PhysicsCompressor.ts`
+
+```ts
+import { supportsLinearEasing } from './featureSupport';
+
+type CompressionPoint = {
+  t: number;
+  v: number;
+};
+
+function perpendicularDistance(point: CompressionPoint, start: CompressionPoint, end: CompressionPoint): number {
+  let dx = end.t - start.t;
+  let dy = end.v - start.v;
+  const magnitude = Math.hypot(dx, dy);
+
+  if (magnitude === 0) {
+    return Math.hypot(point.t - start.t, point.v - start.v);
+  }
+
+  dx /= magnitude;
+  dy /= magnitude;
+
+  const pvx = point.t - start.t;
+  const pvy = point.v - start.v;
+  const projected = dx * pvx + dy * pvy;
+
+  const nearestX = projected * dx;
+  const nearestY = projected * dy;
+
+  return Math.hypot(pvx - nearestX, pvy - nearestY);
+}
+
+export function simplifyPoints(points: CompressionPoint[], epsilon = 0.0005): CompressionPoint[] {
+  if (points.length < 3) return points;
+
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  let maxDistance = 0;
+  let index = -1;
+
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const distance = perpendicularDistance(points[i], first, last);
+
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      index = i;
+    }
+  }
+
+  if (maxDistance > epsilon && index !== -1) {
+    const left = simplifyPoints(points.slice(0, index + 1), epsilon);
+    const right = simplifyPoints(points.slice(index), epsilon);
+    return left.slice(0, -1).concat(right);
+  }
+
+  return [first, last];
+}
+
+export function pointsToLinear(points: CompressionPoint[], epsilon = 0.0005): string {
+  if (!supportsLinearEasing()) return 'linear';
+
+  if (points.length === 0) return 'linear';
+  if (points.length === 1) return `linear(${points[0].v.toFixed(4)})`;
+
+  const normalized = points
+    .map((point) => ({
+      t: Math.max(0, Math.min(1, point.t)),
+      v: point.v,
+    }))
+    .sort((a, b) => a.t - b.t);
+
+  const compressed = simplifyPoints(normalized, epsilon);
+
+  const stops = compressed
+    .map((point, index) => {
+      const value = Number.isFinite(point.v) ? point.v : 0;
+      const percent = Math.max(0, Math.min(100, point.t * 100));
+
+      if (index === 0) return `${value.toFixed(4)} 0%`;
+      if (index === compressed.length - 1) return `${value.toFixed(4)} 100%`;
+
+      return `${value.toFixed(4)} ${percent.toFixed(2)}%`;
+    })
+    .join(', ');
+
+  return `linear(${stops})`;
+}
+
+export const PhysicsCompressor = {
+  simplifyPoints,
+  pointsToLinear,
+};
+```
+
+---
+
+# 4. `src/superanimation/PhysicsFactory.ts`
+
+```ts
+import type { BakedScalarMotion, NumericMotionState, SpringParams } from './types';
+import { pointsToLinear } from './PhysicsCompressor';
+
+function interpolateState(
+  points: BakedScalarMotion['points'],
+  elapsedMs: number,
+): NumericMotionState {
+  if (points.length === 0) {
+    return { position: 0, velocity: 0 };
+  }
+
+  if (elapsedMs <= 0) {
+    return {
+      position: points[0].position,
+      velocity: points[0].velocity,
+    };
+  }
+
+  const last = points[points.length - 1];
+
+  if (elapsedMs >= last.timeMs) {
+    return {
+      position: last.position,
+      velocity: last.velocity,
+    };
+  }
+
+  let low = 0;
+  let high = points.length - 1;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+
+    if (points[mid].timeMs < elapsedMs) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const right = points[Math.max(1, low)];
+  const left = points[right === points[0] ? 0 : Math.max(0, low - 1)];
+
+  const span = right.timeMs - left.timeMs || 1;
+  const t = (elapsedMs - left.timeMs) / span;
+
+  return {
+    position: left.position + (right.position - left.position) * t,
+    velocity: left.velocity + (right.velocity - left.velocity) * t,
+  };
+}
+
+export function bakeSpringScalar(
+  start: number,
+  end: number,
+  initialVelocity = 0,
+  params: SpringParams = {},
+): BakedScalarMotion {
+  const stiffness = params.stiffness ?? 220;
+  const damping = params.damping ?? 24;
+  const mass = params.mass ?? 1;
+  const duration = params.duration ?? 760;
+  const precisionMs = params.precisionMs ?? 5;
+
+  const points: BakedScalarMotion['points'] = [];
+
+  let position = start;
+  let velocity = initialVelocity;
+
+  const distance = end - start;
+  const normalize = Math.abs(distance) < 0.000001
+    ? () => 1
+    : (value: number) => (value - start) / distance;
+
+  const stepSeconds = precisionMs / 1000;
+  const totalSteps = Math.max(2, Math.ceil(duration / precisionMs));
+
+  points.push({
+    timeMs: 0,
+    position,
+    velocity,
+    progress: normalize(position),
+  });
+
+  for (let i = 1; i <= totalSteps; i += 1) {
+    const force = -stiffness * (position - end);
+    const dampingForce = -damping * velocity;
+    const acceleration = (force + dampingForce) / mass;
+
+    velocity += acceleration * stepSeconds;
+    position += velocity * stepSeconds;
+
+    const timeMs = Math.min(duration, i * precisionMs);
+
+    points.push({
+      timeMs,
+      position,
+      velocity,
+      progress: normalize(position),
+    });
+  }
+
+  const compressedInput = points.map((point) => ({
+    t: point.timeMs / duration,
+    v: point.progress,
+  }));
+
+  const easing = pointsToLinear(compressedInput, 0.0005);
+
+  return {
+    duration,
+    easing,
+    points,
+    solver: (elapsedMs: number) => interpolateState(points, elapsedMs),
+  };
+}
+
+export const PhysicsFactory = {
+  bakeSpringScalar,
+};
+```
+
+---
+
+# 5. `src/superanimation/CompositorBridge.ts`
+
+```ts
+import type {
+  CompositorAnimateOptions,
+  CompositorAnimationHandle,
+  SuperAnimationCleanup,
+} from './types';
+import { prefersReducedMotion, safeCancelAnimation, supportsWAAPI } from './featureSupport';
+
+function normalizeWillChange(value: string | undefined): string {
+  return value && value.trim().length > 0 ? value : 'transform, opacity';
+}
+
+export function animateOnCompositor(
+  element: Element,
+  keyframes: Keyframe[] | PropertyIndexedKeyframes,
+  options: CompositorAnimateOptions = {},
+): CompositorAnimationHandle {
+  if (!supportsWAAPI() || prefersReducedMotion()) {
+    return {
+      animation: null,
+      cancel: () => {},
+      finish: () => {},
+    };
+  }
+
+  const htmlElement = element as HTMLElement;
+  const previousWillChange = htmlElement.style.willChange;
+  const willChange = normalizeWillChange(options.willChange);
+
+  htmlElement.style.willChange = willChange;
+
+  const {
+    willChange: _willChange,
+    cleanupWillChange = true,
+    ...timingOptions
+  } = options;
+
+  const animation = htmlElement.animate(keyframes, timingOptions);
+
+  animation.ready.catch(() => {
+    // The animation may be cancelled during StrictMode cleanup.
+  });
+
+  const shouldCleanupWillChange =
+    cleanupWillChange &&
+    timingOptions.iterations !== Infinity &&
+    timingOptions.iterations !== Number.POSITIVE_INFINITY;
+
+  animation.onfinish = () => {
+    if (shouldCleanupWillChange) {
+      htmlElement.style.willChange = previousWillChange;
+    }
+  };
+
+  animation.oncancel = () => {
+    if (shouldCleanupWillChange) {
+      htmlElement.style.willChange = previousWillChange;
+    }
+  };
+
+  return {
+    animation,
+    cancel: () => {
+      safeCancelAnimation(animation);
+      if (cleanupWillChange) {
+        htmlElement.style.willChange = previousWillChange;
+      }
+    },
+    finish: () => {
+      try {
+        animation.finish();
+      } catch {
+        safeCancelAnimation(animation);
+      }
+
+      if (cleanupWillChange) {
+        htmlElement.style.willChange = previousWillChange;
+      }
+    },
+  };
+}
+
+export function createCleanupStack(): {
+  add: (cleanup: SuperAnimationCleanup | CompositorAnimationHandle) => void;
+  run: SuperAnimationCleanup;
+} {
+  const cleanups: SuperAnimationCleanup[] = [];
+
+  return {
+    add(cleanup) {
+      if (typeof cleanup === 'function') {
+        cleanups.push(cleanup);
+        return;
+      }
+
+      cleanups.push(cleanup.cancel);
+    },
+
+    run() {
+      while (cleanups.length > 0) {
+        const cleanup = cleanups.pop();
+
+        try {
+          cleanup?.();
+        } catch {
+          // Cleanup must be non-fatal.
+        }
+      }
+    },
+  };
+}
+
+export const CompositorBridge = {
+  animate: animateOnCompositor,
+  createCleanupStack,
+};
+```
+
+---
+
+# 6. `src/superanimation/MotionController.ts`
+
+```ts
+import type { MotionAxis, SpringParams } from './types';
+import { animateOnCompositor } from './CompositorBridge';
+import { getTimelineNow, safeCancelAnimation } from './featureSupport';
+import { PhysicsFactory } from './PhysicsFactory';
+
+type MotionControllerOptions = SpringParams & {
+  axis?: MotionAxis;
+};
+
+function transformForAxis(axis: MotionAxis, value: number): string {
+  switch (axis) {
+    case 'x':
+      return `translate3d(${value}px, 0, 0)`;
+    case 'y':
+      return `translate3d(0, ${value}px, 0)`;
+    case 'scale':
+      return `scale(${value})`;
+    case 'opacity':
+      return '';
+    default:
+      return `translate3d(${value}px, 0, 0)`;
+  }
+}
+
+export class MotionController {
+  private element: HTMLElement;
+  private animation: Animation | null = null;
+  private startTime = 0;
+  private solver: ((elapsedMs: number) => { position: number; velocity: number }) | null = null;
+  private axis: MotionAxis = 'x';
+
+  currentPosition = 0;
+  currentVelocity = 0;
+
+  constructor(element: HTMLElement, initialPosition = 0) {
+    this.element = element;
+    this.currentPosition = initialPosition;
+  }
+
+  to(target: number, options: MotionControllerOptions = {}): void {
+    const axis = options.axis ?? this.axis;
+    this.axis = axis;
+
+    safeCancelAnimation(this.animation);
+
+    const motion = PhysicsFactory.bakeSpringScalar(
+      this.currentPosition,
+      target,
+      this.currentVelocity,
+      options,
+    );
+
+    this.startTime = getTimelineNow();
+    this.solver = motion.solver;
+
+    const fromValue = this.currentPosition;
+    const toValue = target;
+
+    const keyframes: Keyframe[] =
+      axis === 'opacity'
+        ? [
+            { opacity: String(fromValue) },
+            { opacity: String(toValue) },
+          ]
+        : [
+            { transform: transformForAxis(axis, fromValue) },
+            { transform: transformForAxis(axis, toValue) },
+          ];
+
+    const handle = animateOnCompositor(this.element, keyframes, {
+      duration: motion.duration,
+      easing: motion.easing,
+      fill: 'forwards',
+      willChange: axis === 'opacity' ? 'opacity' : 'transform',
+    });
+
+    this.animation = handle.animation;
+
+    if (this.animation) {
+      this.animation.onfinish = () => {
+        this.currentPosition = target;
+        this.currentVelocity = 0;
+        this.solver = null;
+        this.animation = null;
+      };
+    }
+  }
+
+  interrupt(): { position: number; velocity: number } {
+    if (!this.animation || !this.solver) {
+      return {
+        position: this.currentPosition,
+        velocity: this.currentVelocity,
+      };
+    }
+
+    const elapsed = getTimelineNow() - this.startTime;
+    const snapshot = this.solver(elapsed);
+
+    safeCancelAnimation(this.animation);
+
+    this.currentPosition = snapshot.position;
+    this.currentVelocity = snapshot.velocity;
+
+    if (this.axis === 'opacity') {
+      this.element.style.opacity = String(this.currentPosition);
+    } else {
+      this.element.style.transform = transformForAxis(this.axis, this.currentPosition);
+    }
+
+    this.animation = null;
+    this.solver = null;
+
+    return {
+      position: this.currentPosition,
+      velocity: this.currentVelocity,
+    };
+  }
+
+  cancel(): void {
+    safeCancelAnimation(this.animation);
+    this.animation = null;
+    this.solver = null;
+  }
+}
+```
+
+---
+
+# 7. `src/superanimation/ProceduralAnimator.ts`
+
+```ts
+import type { PrimeHarmonicLayer, SuperAnimationCleanup } from './types';
+import { animateOnCompositor, createCleanupStack } from './CompositorBridge';
+import {
+  parseMs,
+  prefersReducedMotion,
+  supportsRegisterProperty,
+  supportsWAAPI,
+} from './featureSupport';
+import { pointsToLinear } from './PhysicsCompressor';
+
+const DEFAULT_PRIME_DURATIONS = [7001, 11003, 13007, 17011];
+
+function registerNumericProperty(name: string): void {
+  if (!supportsRegisterProperty()) return;
+
+  try {
+    CSS.registerProperty({
+      name,
+      syntax: '<number>',
+      inherits: false,
+      initialValue: '0',
+    });
+  } catch {
+    // Double registration is safe to ignore.
+  }
+}
+
+function bakeLoopedWave(resolution: number, amplitude = 1, phase = 0): string {
+  const count = Math.max(12, resolution);
+  const points = [];
+
+  for (let i = 0; i <= count; i += 1) {
+    const t = i / count;
+    const angle = t * Math.PI * 2;
+
+    const value =
+      Math.sin(angle + phase) * amplitude +
+      Math.sin(angle * 3 + phase * 0.37) * amplitude * 0.35;
+
+    points.push({
+      t,
+      v: value,
+    });
+  }
+
+  points[points.length - 1].v = points[0].v;
+
+  return pointsToLinear(points, 0.0005);
+}
+
+export function startPrimeHarmonics(
+  element: HTMLElement,
+  layers: PrimeHarmonicLayer[],
+): SuperAnimationCleanup {
+  const stack = createCleanupStack();
+
+  if (!supportsWAAPI() || prefersReducedMotion()) {
+    return stack.run;
+  }
+
+  layers.forEach((layer, index) => {
+    registerNumericProperty(layer.property);
+
+    const duration = layer.duration || DEFAULT_PRIME_DURATIONS[index % DEFAULT_PRIME_DURATIONS.length];
+    const easing = bakeLoopedWave(
+      layer.resolution ?? Math.ceil(duration / 1000) * 30,
+      layer.amplitude ?? 1,
+      layer.phase ?? index * 0.777,
+    );
+
+    const handle = animateOnCompositor(
+      element,
+      {
+        [layer.property]: [0, 1],
+      } as PropertyIndexedKeyframes,
+      {
+        duration,
+        iterations: Infinity,
+        easing,
+        composite: 'replace',
+        willChange: 'transform, opacity',
+        cleanupWillChange: false,
+      },
+    );
+
+    stack.add(handle);
+  });
+
+  return stack.run;
+}
+
+export function startStarfield(root: HTMLElement): SuperAnimationCleanup {
+  const stack = createCleanupStack();
+
+  if (!supportsWAAPI() || prefersReducedMotion()) {
+    return stack.run;
+  }
+
+  const driftElements = Array.from(root.querySelectorAll<HTMLElement>('[data-sa-drift]'));
+
+  driftElements.forEach((element) => {
+    const duration = parseMs(element.dataset.saDurationMs, 120000);
+
+    element.style.animation = 'none';
+
+    stack.add(
+      animateOnCompositor(
+        element,
+        [
+          { transform: 'translateY(0)' },
+          { transform: 'translateY(-50%)' },
+        ],
+        {
+          duration,
+          iterations: Infinity,
+          easing: 'linear',
+          willChange: 'transform',
+          cleanupWillChange: false,
+        },
+      ),
+    );
+  });
+
+  const twinkleElements = Array.from(root.querySelectorAll<HTMLElement>('[data-sa-twinkle]'));
+
+  twinkleElements.forEach((element) => {
+    const duration = parseMs(element.dataset.saDurationMs, 5000);
+    const delay = parseMs(element.dataset.saDelayMs, 0);
+
+    element.style.animation = 'none';
+
+    stack.add(
+      animateOnCompositor(
+        element,
+        [
+          { opacity: 0.3 },
+          { opacity: 1 },
+        ],
+        {
+          duration,
+          delay,
+          iterations: Infinity,
+          direction: 'alternate',
+          easing: 'ease-in-out',
+          willChange: 'opacity',
+          cleanupWillChange: false,
+        },
+      ),
+    );
+  });
+
+  return stack.run;
+}
+
+export const ProceduralAnimator = {
+  DEFAULT_PRIME_DURATIONS,
+  registerNumericProperty,
+  startPrimeHarmonics,
+  startStarfield,
+};
+```
+
+---
+
+# 8. `src/superanimation/ReactiveIndexer.ts`
+
+```ts
+import type { SuperAnimationCleanup } from './types';
+import { canUseDOM } from './featureSupport';
+
+function reconcileIndices(parent: Element): void {
+  const children = parent.children;
+  const total = children.length;
+  const totalText = String(total);
+
+  for (let i = 0; i < total; i += 1) {
+    const child = children[i] as HTMLElement;
+    const indexText = String(i + 1);
+
+    if (child.style.getPropertyValue('--index') !== indexText) {
+      child.style.setProperty('--index', indexText);
+    }
+
+    if (child.style.getPropertyValue('--count') !== totalText) {
+      child.style.setProperty('--count', totalText);
+    }
+  }
+}
+
+export function enableReactiveIndexing(selector = '[data-sa-stagger-list]'): SuperAnimationCleanup {
+  if (!canUseDOM) return () => {};
+
+  const containers = Array.from(document.querySelectorAll(selector));
+  const observer = new MutationObserver((records) => {
+    const dirtyParents = new Set<Element>();
+
+    records.forEach((record) => {
+      if (record.type === 'childList' && record.target instanceof Element) {
+        dirtyParents.add(record.target);
+      }
+    });
+
+    dirtyParents.forEach(reconcileIndices);
+  });
+
+  containers.forEach((container) => {
+    reconcileIndices(container);
+
+    observer.observe(container, {
+      childList: true,
+      subtree: false,
+    });
+  });
+
+  return () => observer.disconnect();
+}
+
+export const ReactiveIndexer = {
+  enableReactiveIndexing,
+};
+```
+
+---
+
+# 9. `src/superanimation/LogicKernel.ts`
+
+```ts
+import type { SuperAnimationCleanup } from './types';
+import { canUseDOM } from './featureSupport';
+
+type LogicCallback = (deltaMs: number, timestamp: number) => void;
+
+class DeterministicLogicKernel {
+  private fps = 30;
+  private interval = 1000 / 30;
+  private lastTime = 0;
+  private rafId = 0;
+  private callbacks = new Set<LogicCallback>();
+
+  configure(fps: number): void {
+    this.fps = Math.max(1, Math.min(120, fps));
+    this.interval = 1000 / this.fps;
+  }
+
+  add(callback: LogicCallback): SuperAnimationCleanup {
+    this.callbacks.add(callback);
+    this.start();
+
+    return () => {
+      this.callbacks.delete(callback);
+
+      if (this.callbacks.size === 0) {
+        this.stop();
+      }
+    };
+  }
+
+  private start(): void {
+    if (!canUseDOM || this.rafId) return;
+
+    const loop = (timestamp: number) => {
+      this.rafId = requestAnimationFrame(loop);
+
+      if (!this.lastTime) {
+        this.lastTime = timestamp;
+        return;
+      }
+
+      const elapsed = timestamp - this.lastTime;
+
+      if (elapsed >= this.interval) {
+        this.lastTime = timestamp - (elapsed % this.interval);
+
+        this.callbacks.forEach((callback) => {
+          callback(elapsed, timestamp);
+        });
+      }
+    };
+
+    this.rafId = requestAnimationFrame(loop);
+  }
+
+  private stop(): void {
+    if (!this.rafId) return;
+
+    cancelAnimationFrame(this.rafId);
+    this.rafId = 0;
+    this.lastTime = 0;
+  }
+}
+
+export const LogicKernel = new DeterministicLogicKernel();
+```
+
+---
+
+# 10. `src/superanimation/useSuperAnimation.ts`
+
+```ts
+import { useEffect, useLayoutEffect, type DependencyList, type RefObject } from 'react';
+import { CompositorBridge } from './CompositorBridge';
+import { startStarfield } from './ProceduralAnimator';
+import { supportsWAAPI } from './featureSupport';
+
+export function useStarfieldSuperAnimation(ref: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return undefined;
+
+    return startStarfield(root);
+  }, [ref]);
+}
+
+export function useSuperAnimationScope(
+  ref: RefObject<HTMLElement | null>,
+  deps: DependencyList = [],
+): void {
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || !supportsWAAPI()) return undefined;
+
+    element.dataset.saScope = 'mounted';
+
+    const stack = CompositorBridge.createCleanupStack();
+
+    const promoteTargets = Array.from(
+      element.querySelectorAll<HTMLElement>('[data-sa-promote], [data-sa-reveal], [data-sa-tile]'),
+    );
+
+    promoteTargets.forEach((target) => {
+      const previous = target.style.willChange;
+      target.style.willChange = target.dataset.saWillChange || 'transform, opacity';
+
+      stack.add(() => {
+        target.style.willChange = previous;
+      });
+    });
+
+    return stack.run;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+```
+
+---
+
+# 11. `src/superanimation/index.ts`
+
+```ts
+import { canUseDOM } from './featureSupport';
+import { ProceduralAnimator } from './ProceduralAnimator';
+import { LogicKernel } from './LogicKernel';
+
+let bootstrapped = false;
+
+export function bootstrapSuperAnimation(): void {
+  if (!canUseDOM || bootstrapped) return;
+
+  bootstrapped = true;
+
+  document.documentElement.dataset.superanimation = 'ready';
+
+  ['--sa-noise-1', '--sa-noise-2', '--sa-noise-3', '--sa-noise-4'].forEach((property) => {
+    ProceduralAnimator.registerNumericProperty(property);
+  });
+
+  LogicKernel.configure(30);
+}
+
+export * from './types';
+export * from './featureSupport';
+export * from './PhysicsCompressor';
+export * from './PhysicsFactory';
+export * from './CompositorBridge';
+export * from './MotionController';
+export * from './ProceduralAnimator';
+export * from './ReactiveIndexer';
+export * from './LogicKernel';
+export * from './useSuperAnimation';
+```
+
+---
+
+# تعديل الملفات الحالية
+
+## 1. استبدل `src/main.tsx` بهذا
+
+```tsx
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+import { bootstrapSuperAnimation } from './superanimation';
+
+bootstrapSuperAnimation();
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
+```
+
+---
+
+## 2. استبدل `src/App.tsx` بهذا
+
+```tsx
+import { useState, useEffect, useRef } from 'react';
+import { Starfield } from './components/Starfield';
+import { Navigation } from './components/Navigation';
+import { Footer } from './components/Footer';
+import { Home } from './pages/Home';
+import { Work } from './pages/Work';
+import { Approach } from './pages/Approach';
+import { useSuperAnimationScope } from './superanimation';
+
+export default function App() {
+  const [currentPage, setCurrentPage] = useState('home');
+  const [routeData, setRouteData] = useState<any>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+
+  useSuperAnimationScope(mainRef, [currentPage]);
+
+  // Simple scroll to top on page change unless routeData tells us otherwise
+  useEffect(() => {
+    if (!routeData?.scrollToId) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [currentPage, routeData]);
+
+  const handleNavigate = (page: string, data?: any) => {
+    setCurrentPage(page);
+    setRouteData(data || null);
+  };
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'home':
+        return (
+          <Home
+            initialService={routeData?.service}
+            shouldScrollToForm={routeData?.scrollToId === 'contact-form-section'}
+          />
+        );
+      case 'work':
+        return <Work onNavigate={handleNavigate} />;
+      case 'approach':
+        return <Approach />;
+      default:
+        return <Home />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen text-text-main flex flex-col font-sans selection:bg-ember-deep selection:text-text-main relative">
+      <Starfield />
+
+      <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
+
+      <main
+        ref={mainRef}
+        className="flex-grow flex flex-col relative z-10 w-full animate-in fade-in duration-700"
+        data-sa-page-shell
+      >
+        {renderPage()}
+      </main>
+
+      <Footer />
+    </div>
+  );
+}
+```
+
+### ما تغير هنا؟
+
+لم نغير الشكل.
+أضفنا فقط:
+
+```tsx
+useSuperAnimationScope(mainRef, [currentPage]);
+```
+
+وظيفته تجهيز العناصر الداخلية التي لاحقًا ستأخذ `data-sa-promote`, `data-sa-reveal`, أو `data-sa-tile` بدون تغيير DOM أو ألوان أو مقاسات.
+
+---
+
+## 3. أضف هذا في آخر `src/index.css`
+
+لا تحذف القديم. أضف هذا في نهاية الملف:
+
+```css
+/* ============================================================
+   NullixForge SuperAnimation Layer
+   Goal: compositor-safe runtime without changing visual design.
+   ============================================================ */
+
+@property --sa-noise-1 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-2 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-3 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-4 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+:root {
+  --sa-ready: 1;
+}
+
+html[data-superanimation='ready'] {
+  text-rendering: geometricPrecision;
+}
+
+[data-sa-promote],
+[data-sa-reveal],
+[data-sa-tile],
+[data-sa-drift],
+[data-sa-twinkle] {
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+[data-sa-drift] {
+  will-change: transform;
+}
+
+[data-sa-twinkle] {
+  will-change: opacity;
+}
+
+[data-sa-page-shell] {
+  isolation: isolate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sa-drift],
+  [data-sa-twinkle],
+  [data-sa-reveal],
+  [data-sa-tile] {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+```
+
+### مهم
+
+هذا لا يغير شكل الموقع، لأنه لا يغير:
+
+```txt
+color
+size
+position
+layout
+spacing
+font
+z-index
+```
+
+هو فقط يجهّز العناصر لتشتغل على compositor path.
+
+---
+
+## 4. استبدل `src/components/Starfield.tsx` بهذا
+
+```tsx
+import { useMemo, useRef } from 'react';
+import { useStarfieldSuperAnimation } from '../superanimation';
+
+type Star = {
+  id: number;
+  size: number;
+  top: number;
+  left: number;
+  color: string;
+  opacity: number;
+  animationDelay: string;
+  animationDuration: string;
+  animationDelayMs: number;
+  animationDurationMs: number;
+};
+
+const generateStars = (
+  count: number,
+  sizeRange: [number, number],
+  colorMix: string[],
+  opacityRange: [number, number],
+): Star[] => {
+  return Array.from({ length: count }).map((_, i) => {
+    const size = sizeRange[0] + Math.random() * (sizeRange[1] - sizeRange[0]);
+    const top = Math.random() * 100;
+    const left = Math.random() * 100;
+    const color = colorMix[Math.floor(Math.random() * colorMix.length)];
+    const opacity = opacityRange[0] + Math.random() * (opacityRange[1] - opacityRange[0]);
+
+    const animationDelayMs = Math.random() * 10000;
+    const animationDurationMs = 3000 + Math.random() * 6000;
+
+    const animationDelay = `${animationDelayMs}ms`;
+    const animationDuration = `${animationDurationMs}ms`;
+
+    return {
+      id: i,
+      size,
+      top,
+      left,
+      color,
+      opacity,
+      animationDelay,
+      animationDuration,
+      animationDelayMs,
+      animationDurationMs,
+    };
+  });
+};
+
+function driftToMs(driftDuration: string): number {
+  if (driftDuration.endsWith('ms')) return Number.parseFloat(driftDuration);
+  if (driftDuration.endsWith('s')) return Number.parseFloat(driftDuration) * 1000;
+
+  const value = Number.parseFloat(driftDuration);
+  return Number.isFinite(value) ? value : 120000;
+}
+
+export function Starfield() {
+  const starfieldRef = useRef<HTMLDivElement | null>(null);
+  useStarfieldSuperAnimation(starfieldRef);
+
+  const { layerA, layerB, layerC, layerD } = useMemo(() => {
+    return {
+      layerA: generateStars(40, [1, 1.5], ['var(--heated-ivory)'], [0.1, 0.4]),
+      layerB: generateStars(25, [1.5, 2], ['var(--heated-ivory)', 'var(--star-gold)'], [0.3, 0.6]),
+      layerC: generateStars(10, [2, 3], ['var(--star-bright)', 'var(--star-gold)'], [0.6, 0.9]),
+      layerD: generateStars(5, [2.5, 4], ['var(--star-bright)', 'var(--star-ember)'], [0.8, 1]),
+    };
+  }, []);
+
+  const renderStar = (star: Star, top: number, key: string | number) => (
+    <div
+      key={key}
+      className="absolute rounded-full"
+      data-sa-twinkle
+      data-sa-duration-ms={star.animationDurationMs}
+      data-sa-delay-ms={star.animationDelayMs}
+      style={{
+        width: `${star.size}px`,
+        height: `${star.size}px`,
+        top: `${top}%`,
+        left: `${star.left}%`,
+        backgroundColor: star.color,
+        opacity: star.opacity,
+        boxShadow: star.size > 2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
+
+        // CSS fallback. SuperAnimation disables this at runtime when WAAPI is available
+        // and recreates the exact same opacity animation on the compositor.
+        animation: `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
+        animationDelay: star.animationDelay,
+      }}
+    />
+  );
+
+  const renderLayer = (stars: Star[], layerName: string, driftDuration: string) => {
+    const driftDurationMs = driftToMs(driftDuration);
+
+    return (
+      <div
+        className="absolute inset-0 z-0 pointer-events-none overflow-hidden"
+        data-layer={`starfield-${layerName}`}
+      >
+        <div
+          className="absolute inset-0"
+          data-sa-drift
+          data-sa-duration-ms={driftDurationMs}
+          style={{
+            // CSS fallback. SuperAnimation disables this at runtime when WAAPI is available
+            // and recreates the exact same transform animation on the compositor.
+            animation: `drift ${driftDuration} linear infinite`,
+            height: '200%',
+          }}
+        >
+          {stars.map((star) => renderStar(star, star.top / 2, star.id))}
+
+          {/* Second set for seamless scrolling */}
+          {stars.map((star) => renderStar(star, 50 + star.top / 2, `${star.id}-clone`))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[-3] pointer-events-none bg-[#030304]" aria-hidden="true" />
+
+      <div
+        ref={starfieldRef}
+        className="fixed inset-0 z-[-2] pointer-events-none opacity-60"
+        aria-hidden="true"
+      >
+        {renderLayer(layerA, 'mist', '120s')}
+        {renderLayer(layerB, 'mid', '90s')}
+        {renderLayer(layerC, 'foreground', '60s')}
+        {renderLayer(layerD, 'signals', '180s')}
+      </div>
+
+      <div
+        className="fixed inset-0 z-[-1] pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background:
+            'linear-gradient(180deg, rgba(3,3,4,0.88) 0%, rgba(6,7,8,0.94) 42%, rgba(8,9,11,0.98) 100%)',
+        }}
+      />
+
+      <div
+        className="fixed inset-0 z-[-1] pointer-events-none opacity-[0.06]"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(255,255,255,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.4) 1px, transparent 1px)',
+          backgroundSize: '100px 100px',
+        }}
+      />
+
+      <div className="fixed bottom-0 inset-x-0 h-[40vh] z-[-1] pointer-events-none bg-gradient-to-t from-molten-gold/[0.03] to-transparent" />
+    </>
+  );
+}
+```
+
+---
+
+# الفرق بين الكود القديم والجديد
+
+## القديم
+
+في `Starfield.tsx` القديم:
+
+```tsx
+animation: `drift ${driftDuration} linear infinite`
+```
+
+وكل نجمة كان عندها:
+
+```tsx
+animation: `twinkle ${star.animationDuration} ease-in-out infinite alternate`
+```
+
+ده كان معناه إن كل عنصر يعتمد على CSS animation مباشرة. دي غالبًا جيدة لأنها `transform` و`opacity`، لكنها:
+
+```txt
+ليست موحدة تحت engine واحد
+لا يوجد lifecycle cleanup واضح داخل React StrictMode
+لا يوجد feature detection
+لا يوجد fallback معماري
+لا يوجد CompositorBridge
+لا يوجد Shadow State system لباقي المشروع
+لا يوجد Physics Compressor
+لا يوجد Reactive Indexer
+لا يوجد Prime Harmonic engine جاهز
+```
+
+## الجديد
+
+في الجديد:
+
+```txt
+CSS animation تبقى fallback فقط
+WAAPI يستلم الحركة عند التشغيل
+CompositorBridge يدير will-change والتنظيف
+ProceduralAnimator يدير drift/twinkle
+كل الحركة تتحول إلى fire-and-forget compositor animations
+```
+
+بمعنى عملي:
+
+```txt
+React يرسم النجوم مرة واحدة
+SuperAnimation يأخذ العناصر بعد mount
+يلغي CSS animation runtime عند دعم WAAPI
+يعيد نفس الحركة عبر element.animate()
+ثم يترك المتصفح/Compositor يديرها
+```
+
+---
+
+# هل الشكل هيتغير؟
+
+بالنسبة للملفات التي أرسلتها: **لا، المفروض لا يتغير الشكل**، لأننا حافظنا على:
+
+```txt
+نفس عدد النجوم
+نفس الأحجام
+نفس top/left
+نفس الألوان
+نفس opacity الأولي
+نفس boxShadow
+نفس مدة drift
+نفس مدة twinkle
+نفس animation delay
+نفس طبقات z-index
+نفس الخلفيات
+نفس gradient
+نفس grid overlay
+```
+
+التغيير هو فقط في **طريقة التنفيذ**.
+
+---
+
+# هل هذا يحقق المطلوب؟
+
+على الملفات التي أرسلتها: **نعم، يطبق أساس SuperAnimation فعليًا**.
+
+يحقق:
+
+```txt
+Silent Compositor layer
+WAAPI transport
+Fire-and-forget animation
+Feature detection
+Reduced motion fallback
+Compositor cleanup
+Physics Factory
+Physics Compressor
+MotionController with Shadow State
+Prime Harmonic procedural engine
+ReactiveIndexer
+LogicKernel 30fps بدون تشغيل دائم فارغ
+```
+
+لكن تطبيقه على المشروع كله لن يكتمل إلا بعد إرسال كود:
+
+```txt
+src/components/OverlayLayers.tsx
+src/components/TileEntityForge.tsx
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/pages/Home.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+```
+
+لأن الملفات دي هي التي غالبًا فيها scroll/reveal/tiles/transitions الحقيقية.
+
+---
+
+# فرق الأداء المتوقع
+
+## في `Starfield.tsx`
+
+القديم أصلًا يستخدم `transform` و`opacity`، فكان قريب من compositor-safe. لذلك الفرق هنا ليس “معجزة 10x”، بل:
+
+```txt
+تنظيم معماري أفضل
+WAAPI lifecycle أوضح
+تقليل تدخل React
+تنظيف أفضل مع StrictMode
+استعداد لتطبيق نفس engine على باقي الموقع
+```
+
+التحسن الأكبر سيظهر في الملفات التي غالبًا تسبب المشكلة فعلًا:
+
+```txt
+TileEntityForge.tsx
+OverlayLayers.tsx
+Home.tsx
+Work.tsx
+Approach.tsx
+```
+
+خصوصًا لو فيها:
+
+```txt
+scroll listeners
+setState أثناء scroll
+IntersectionObserver لكل عنصر
+getBoundingClientRect متكرر
+top/left animations
+filter/blur كثير
+mapping ضخم للـ tiles
+```
+
+## الفرق الواقعي
+
+| الجزء                | القديم                   | الجديد                                |
+| -------------------- | ------------------------ | ------------------------------------- |
+| Starfield drift      | CSS animation            | WAAPI compositor fire-and-forget      |
+| Star twinkle         | CSS animation لكل نجمة   | WAAPI managed opacity animation       |
+| React workload       | يرسم العناصر فقط         | يرسم العناصر فقط + engine يمسك الحركة |
+| Main Thread          | منخفض أصلًا في Starfield | أقل تنظيمًا وأكثر عزلًا               |
+| Cleanup              | غير مركزي                | مركزي عبر cleanup stack               |
+| Physics/Shadow State | غير موجود                | موجود وجاهز                           |
+| Prime Harmonics      | غير موجود                | موجود                                 |
+| Future scroll/tiles  | غير مجهز                 | مجهز                                  |
+
+---
+
+# المرحلة التالية الضرورية
+
+أرسل محتوى هذه الملفات بالترتيب:
+
+```txt
+src/components/TileEntityForge.tsx
+src/components/OverlayLayers.tsx
+src/pages/Home.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/components/Navigation.tsx
+src/components/Footer.tsx
+```
+
+أهم ملف هو:
+
+```txt
+src/components/TileEntityForge.tsx
+```
+
+لأن لو البطء عندك من “رسم الموقع حسب الجزء المعروض”، فغالبًا السبب هناك أو في صفحات `Home/Work/Approach`، مش في `main.tsx` ولا `App.tsx`.
+"
+
+
+
+
+لقد قمنا بتنفيذ هذه المرحله بدقه 100% : "
+
+تمام. بناءً على الكود الحالي الذي أرسلته، التطبيق الصحيح الآن يكون على ملفين:
+
+```txt
+src/components/OverlayLayers.tsx
+src/components/TileEntityForge.tsx
+```
+
+وسنضيف ملف hook جديد واحد داخل طبقة SuperAnimation الحالية:
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+```
+
+ثم نضيف export واحد في:
+
+```txt
+src/superanimation/index.ts
+```
+
+الفكرة الأساسية هنا:
+`OverlayLayers` كان يعمل بـ `requestAnimationFrame` ويستدعي `setPhaseIndex` باستمرار، وهذا ضد هدف Silent Compositor. و`TileEntityForge` كان يعتمد على CSS keyframes ضخمة لتحريك `transform` مع تحريك خصائص paint مثل `background`, `box-shadow`, `border-color`. طبقًا للمعمارية التي عندك، الحركة المثالية يجب أن تنقل `transform/opacity` إلى مسار compositor، وأن نتجنب الخصائص التي تسبب layout/paint قدر الإمكان. 
+
+---
+
+# 1. ملف جديد
+
+## أنشئ الملف التالي
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+```
+
+ضع فيه هذا الكود:
+
+```ts
+import { useLayoutEffect, type RefObject } from 'react';
+import { animateOnCompositor, createCleanupStack } from './CompositorBridge';
+import { prefersReducedMotion, supportsWAAPI } from './featureSupport';
+
+type TileMotionPoint = {
+  p: number;
+  c: number;
+  r: number;
+  rot: number;
+};
+
+type TileMotionDefinition = {
+  id: string;
+  path: readonly TileMotionPoint[];
+};
+
+const TILE_LOOP_MS = 32000;
+const TILE_SEGMENT_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
+function clampOffset(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function tilePointToTransform(point: TileMotionPoint): string {
+  const left = (point.c - 1) * 18;
+  const top = (point.r - 1) * 18;
+
+  return `translate3d(${left}px, ${top}px, 0) rotate(${point.rot}deg)`;
+}
+
+function buildTileKeyframes(tile: TileMotionDefinition): Keyframe[] {
+  return tile.path.map((point, index) => {
+    const isLast = index === tile.path.length - 1;
+
+    return {
+      offset: clampOffset(point.p / 100),
+      transform: tilePointToTransform(point),
+      easing: isLast ? undefined : TILE_SEGMENT_EASING,
+    };
+  });
+}
+
+export function useTileFieldSuperAnimation(
+  rootRef: RefObject<HTMLElement | null>,
+  tiles: readonly TileMotionDefinition[],
+): void {
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+
+    if (!root || !supportsWAAPI() || prefersReducedMotion()) {
+      return undefined;
+    }
+
+    const stack = createCleanupStack();
+
+    tiles.forEach((tile) => {
+      const element = root.querySelector<HTMLElement>(`[data-sa-tile-motion="${tile.id}"]`);
+
+      if (!element) return;
+
+      const previousAnimation = element.style.animation;
+      const previousWillChange = element.style.willChange;
+
+      stack.add(() => {
+        element.style.animation = previousAnimation;
+        element.style.willChange = previousWillChange;
+      });
+
+      // CSS animation remains as fallback. When WAAPI exists, SuperAnimation owns transform.
+      element.style.animation = 'none';
+      element.style.willChange = 'transform';
+
+      stack.add(
+        animateOnCompositor(element, buildTileKeyframes(tile), {
+          duration: TILE_LOOP_MS,
+          iterations: Infinity,
+          easing: 'linear',
+          fill: 'both',
+          composite: 'replace',
+          willChange: 'transform',
+          cleanupWillChange: false,
+        }),
+      );
+    });
+
+    return stack.run;
+  }, [rootRef, tiles]);
+}
+```
+
+---
+
+# 2. تعديل `src/superanimation/index.ts`
+
+## مكان التعديل
+
+في آخر الملف، بعد:
+
+```ts
+export * from './useSuperAnimation';
+```
+
+## أضف هذا السطر
+
+```ts
+export * from './useTileFieldSuperAnimation';
+```
+
+---
+
+# 3. تعديل `src/components/OverlayLayers.tsx`
+
+## التعديل الأول: import
+
+### استبدل السطر الحالي
+
+```tsx
+import React, { useEffect, useState } from 'react';
+```
+
+### بهذا
+
+```tsx
+import React, { useEffect, useRef, useState } from 'react';
+import { LogicKernel } from '../superanimation';
+```
+
+---
+
+## التعديل الثاني: داخل `OverlayLayers`
+
+### ابحث عن هذا الجزء
+
+```tsx
+export default function OverlayLayers() {
+  const [phaseIndex, setPhaseIndex] = useState(0);
+  const [traceLines, setTraceLines] = useState<string[]>([]);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+```
+
+### استبدله بهذا
+
+```tsx
+export default function OverlayLayers() {
+  const [phaseIndex, setPhaseIndex] = useState(0);
+  const [traceLines, setTraceLines] = useState<string[]>([]);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const phaseIndexRef = useRef(0);
+```
+
+---
+
+## التعديل الثالث: استبدال حلقة `requestAnimationFrame`
+
+### احذف هذا الـ `useEffect` بالكامل
+
+```tsx
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      setPhaseIndex(9); // STABLE_VERIFICATION phase
+      return;
+    }
+
+    const startTime = performance.now();
+    let frameId: number;
+
+    const update = () => {
+      const now = performance.now();
+      const elapsed = (now - startTime) % 32000;
+      const progress = (elapsed / 32000) * 100;
+
+      let pIndex = 0;
+      for (let i = 0; i < OVERLAY_PHASES.length; i++) {
+        if (progress >= OVERLAY_PHASES[i].range[0] && progress < OVERLAY_PHASES[i].range[1]) {
+          pIndex = i;
+          break;
+        }
+      }
+      
+      setPhaseIndex(pIndex);
+      frameId = requestAnimationFrame(update);
+    };
+
+    frameId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameId);
+  }, [prefersReducedMotion]);
+```
+
+### وضع مكانه هذا
+
+```tsx
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      phaseIndexRef.current = 9; // STABLE_VERIFICATION phase
+      setPhaseIndex(9);
+      return undefined;
+    }
+
+    const startTime = performance.now();
+
+    return LogicKernel.add((_deltaMs, timestamp) => {
+      const elapsed = (timestamp - startTime) % 32000;
+      const progress = (elapsed / 32000) * 100;
+
+      let nextPhaseIndex = 0;
+
+      for (let i = 0; i < OVERLAY_PHASES.length; i += 1) {
+        const phase = OVERLAY_PHASES[i];
+
+        if (progress >= phase.range[0] && progress < phase.range[1]) {
+          nextPhaseIndex = i;
+          break;
+        }
+      }
+
+      if (nextPhaseIndex !== phaseIndexRef.current) {
+        phaseIndexRef.current = nextPhaseIndex;
+        setPhaseIndex(nextPhaseIndex);
+      }
+    });
+  }, [prefersReducedMotion]);
+```
+
+---
+
+## التعديل الرابع: تحسين CSS الداخلي بدون تغيير الشكل
+
+### داخل `<style dangerouslySetInnerHTML={{ __html: ` ... `}} />`
+
+ابحث عن:
+
+```css
+        .trace-line-enter {
+           animation: trace-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+```
+
+### استبدله بهذا
+
+```css
+        .trace-line-enter {
+           animation: trace-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+           will-change: opacity, transform;
+           backface-visibility: hidden;
+           transform-style: preserve-3d;
+        }
+```
+
+---
+
+### ثم ابحث عن:
+
+```css
+        .fade-transition {
+           transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+```
+
+### استبدله بهذا
+
+```css
+        .fade-transition {
+           transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+           will-change: opacity, transform;
+           backface-visibility: hidden;
+           transform-style: preserve-3d;
+        }
+```
+
+---
+
+## التعديل الخامس: إضافة data attributes للـ panels
+
+### ابحث عن أول panel
+
+```tsx
+      <div 
+        className="cognitive-overlay-panel panel-trace overflow-hidden flex flex-col"
+```
+
+### استبدله بهذا
+
+```tsx
+      <div
+        data-sa-promote
+        data-sa-will-change="opacity, transform"
+        className="cognitive-overlay-panel panel-trace overflow-hidden flex flex-col"
+```
+
+---
+
+### وابحث عن ثاني panel
+
+```tsx
+      <div 
+        className="cognitive-overlay-panel panel-principle overflow-hidden flex"
+```
+
+### استبدله بهذا
+
+```tsx
+      <div
+        data-sa-promote
+        data-sa-will-change="opacity, transform"
+        className="cognitive-overlay-panel panel-principle overflow-hidden flex"
+```
+
+---
+
+# 4. تعديل `src/components/TileEntityForge.tsx`
+
+## التعديل الأول: import
+
+### استبدل السطر الحالي
+
+```tsx
+import React, { useEffect, useState } from 'react';
+```
+
+### بهذا
+
+```tsx
+import React, { useEffect, useRef, useState } from 'react';
+import { useTileFieldSuperAnimation } from '../superanimation';
+```
+
+> ملاحظة: أبقيت `useEffect/useState` لأن ملفك ما زال يستخدمهما لتوليد CSS الخاص بالإشارات الداخلية. تحويل كل إشارات `background/box-shadow/border-color` إلى طبقات opacity فقط ممكن، لكنه يحتاج patch أكبر جدًا داخل بنية الـ tile نفسها. هذا التعديل الحالي ينقل أهم حركة ثقيلة وهي حركة `transform` للـ WAAPI compositor بدون تغيير الشكل.
+
+---
+
+## التعديل الثاني: داخل component
+
+### ابحث عن بداية component
+
+```tsx
+export default function TileEntityForge() {
+  const [animationStyle, setAnimationStyle] = useState("");
+```
+
+### استبدله بهذا
+
+```tsx
+export default function TileEntityForge() {
+  const [animationStyle, setAnimationStyle] = useState("");
+  const tileFieldRef = useRef<HTMLDivElement | null>(null);
+
+  useTileFieldSuperAnimation(tileFieldRef, TILES);
+```
+
+---
+
+## التعديل الثالث: Forge Grid Container
+
+### ابحث عن هذا الجزء
+
+```tsx
+      <div className="relative rounded-[20px] scale-[0.74] min-[390px]:scale-[0.88] min-[520px]:scale-100"
+```
+
+### استبدله بهذا
+
+```tsx
+      <div
+        ref={tileFieldRef}
+        data-sa-tile-field
+        className="relative rounded-[20px] scale-[0.74] min-[390px]:scale-[0.88] min-[520px]:scale-100"
+```
+
+---
+
+## التعديل الرابع: tile wrapper
+
+### ابحث عن tile wrapper داخل `TILES.map`
+
+```tsx
+            <div
+              key={tile.id}
+              className="absolute"
+              style={{
+                width: '18px',
+                height: '18px',
+                transformOrigin: 'center center',
+                animation: `move-${tile.id} 32s cubic-bezier(0.16, 1, 0.3, 1) infinite`,
+              }}
+            >
+```
+
+### استبدله بهذا
+
+```tsx
+            <div
+              key={tile.id}
+              data-sa-tile
+              data-sa-tile-motion={tile.id}
+              className="absolute"
+              style={{
+                width: '18px',
+                height: '18px',
+                transformOrigin: 'center center',
+                animation: `move-${tile.id} 32s cubic-bezier(0.16, 1, 0.3, 1) infinite`,
+                willChange: 'transform',
+              }}
+            >
+```
+
+الـ `animation` القديمة تظل موجودة كـ fallback. عند دعم WAAPI، `useTileFieldSuperAnimation` سيوقفها على wrapper فقط ويشغل نفس المسار عبر WAAPI.
+
+---
+
+# ماذا تغير عمليًا؟
+
+## في `OverlayLayers`
+
+### القديم
+
+كان عندك:
+
+```txt
+requestAnimationFrame دائم
+حساب progress كل frame
+setPhaseIndex كل frame تقريبًا
+```
+
+حتى لو `phaseIndex` لم يتغير، أنت ما زلت تدخل React update path باستمرار.
+
+### الجديد
+
+أصبح:
+
+```txt
+LogicKernel مضبوط على 30Hz
+لا يوجد setState إلا عند تغير phase فعليًا
+الـ fade/trace transitions تظل opacity/transform
+العناصر المهمة مروّجة للمركب عبر data-sa-promote
+```
+
+يعني بدل ما React يتلقى update كل frame، أصبح يتلقى update فقط عند تغير المرحلة. في دورة 32 ثانية، عندك تقريبًا 11 مرحلة، إذن بدل مئات/آلاف محاولات التحديث، أصبح عندك حوالي 11 `setPhaseIndex` فعلي فقط لكل loop.
+
+---
+
+## في `TileEntityForge`
+
+### القديم
+
+حركة كل tile كانت:
+
+```txt
+CSS @keyframes transform
+داخل style string مولد في useEffect
+```
+
+وهي غالبًا كانت جيدة نسبيًا لأنها تستخدم `transform`، لكنها ليست جزءًا من بروتوكول SuperAnimation ولا يوجد handshake/cleanup/feature detection.
+
+### الجديد
+
+حركة الـ tiles أصبحت:
+
+```txt
+React يرسم الـ tiles
+CSS move-* يبقى fallback فقط
+WAAPI يستلم transform path
+CompositorBridge يدير will-change
+الحركة تعمل كـ fire-and-forget
+لا يوجد rAF لحركة الـ tiles
+لا يوجد قراءة getComputedStyle
+لا يوجد تحريك top/left
+```
+
+هذا يطبق بروتوكول Silent Compositor على أهم جزء متحرك في `TileEntityForge`: حركة الـ transform نفسها. المعمارية السابقة التي نفذناها فعلًا تحتوي على `CompositorBridge`, `PhysicsCompressor`, `MotionController`, `ReactiveIndexer`, و`LogicKernel` داخل `src/superanimation`، وهذا هو الأساس الذي نستخدمه هنا بدل كتابة animation logic داخل المكونات. 
+
+---
+
+# هل سيغير شكل الموقع؟
+
+لا، هذه التعديلات لا تغير:
+
+```txt
+مقاسات الـ tiles
+ألوان الـ tiles
+مسارات الحركة
+توقيت loop = 32s
+الـ easing الأساسي
+مكان الـ panels
+نصوص الـ overlay
+الـ grid
+الـ glow
+الـ z-index
+الـ layout
+```
+
+التغيير الوحيد هو:
+
+```txt
+طريقة تنفيذ حركة transform للـ tiles
+وطريقة جدولة phase state في OverlayLayers
+```
+
+---
+
+# هل هذا يحقق ما نرجوه؟
+
+نعم، لهذه المرحلة تحديدًا يحقق المطلوب الأساسي:
+
+```txt
+إزالة rAF المستمر من OverlayLayers
+منع React من استقبال تحديثات phase غير ضرورية
+نقل tile movement إلى WAAPI compositor
+الحفاظ على CSS fallback
+استخدام طبقة SuperAnimation الحالية بدل logic داخل component
+عدم تغيير الشكل البصري
+```
+
+لكن بدقة هندسية: لا أقدر أقول إن **كل** `TileEntityForge` أصبح compositor-only بنسبة كاملة، لأن الكود الحالي ما زال يحتوي على animations لخصائص مثل:
+
+```txt
+background
+box-shadow
+border-color
+```
+
+وهذه خصائص paint وليست compositor-only. تركتها كما هي الآن للحفاظ على الشكل بدقة، لأن تحويلها يتطلب إعادة تركيب داخلية للـ tile إلى طبقات ثابتة فوق بعضها، وتحريك opacity فقط. هذا سيكون patch لاحق منفصل ومهم.
+
+---
+
+# فرق الأداء المتوقع
+
+## OverlayLayers
+
+الفرق كبير، لأننا أزلنا تحديث React المستمر.
+
+| البند                      | قبل                               | بعد                    |
+| -------------------------- | --------------------------------- | ---------------------- |
+| loop                       | `requestAnimationFrame` دائم      | `LogicKernel` 30Hz     |
+| React state update         | محاولة كل frame                   | فقط عند تغير phase     |
+| عدد تحديثات phase خلال 32s | قد يصل إلى ~1900 محاولة على 60fps | حوالي 11 تحديث فعلي    |
+| التأثير                    | ضغط زائد على Main Thread          | Main Thread أهدأ بكثير |
+
+## TileEntityForge
+
+الفرق متوسط إلى كبير حسب المتصفح والجهاز.
+
+| البند                 | قبل           | بعد                            |
+| --------------------- | ------------- | ------------------------------ |
+| حركة الـ tile wrapper | CSS keyframes | WAAPI عبر CompositorBridge     |
+| fallback              | CSS فقط       | CSS fallback + WAAPI عند الدعم |
+| will-change           | غير مركزي     | موجه على wrapper               |
+| lifecycle cleanup     | غير موجود     | موجود عبر hook cleanup         |
+| Main Thread           | أقل انضباطًا  | أكثر عزلًا                     |
+
+الأكبر في هذه المرحلة هو `OverlayLayers`. أما `TileEntityForge` فالحركة الأساسية تحسنت معماريًا، لكن التحسين النهائي يحتاج تحويل glow/border/trace paint animations إلى opacity layers.
+
+---
+
+# المرحلة التالية بعد هذا patch
+
+المرحلة التالية لو تريد SuperAnimation أعمق داخل `TileEntityForge` هي:
+
+```txt
+تحويل glow-* من background/box-shadow animation إلى static layers + opacity
+تحويل terminal-glow-* إلى stacked dots + opacity
+تحويل trace-glow-* إلى stacked traces + opacity
+تحويل border-color إلى border overlay layers + opacity
+```
+
+هذا سيجعل الـ tile visual state نفسه أقرب إلى compositor-only بدل paint-heavy animations، مع الحفاظ على نفس الشكل.
+
+
+"
+
+
+لقد تم تنفيذ هذه المرحله بدقه 100% : "تمام. هذه المرحلة تنفّذ الجزء الأعمق داخل `TileEntityForge`: تحويل `glow-*`, و`terminal-glow-*`, و`trace-glow-*`, و`border-color` من تحريك خصائص paint-heavy إلى **طبقات static ثابتة** لا يتغير فيها إلا `opacity`. هذا يطابق قاعدة الـ Silent Compositor: المسموح عمليًا هو `transform` و`opacity`، بينما `background`, `box-shadow`, و`border-color` لا نحرّكها أثناء التشغيل. 
+
+## الملف بعد التعديل
+
+استبدل ملف:
+
+```txt
+src/components/TileEntityForge.tsx
+```
+
+بهذا الملف كاملًا.
+
+> ملاحظة مهمة جدًا: لم أغير بيانات `TILES` نفسها: لا positions، لا rotations، لا timings، لا red/green starts. التغيير كله في طريقة بناء الطبقات البصرية وتنفيذها.
+
+```tsx
+import React, { useMemo, useRef } from 'react';
+import { useTileFieldSuperAnimation } from '../superanimation';
+import OverlayLayers from './OverlayLayers';
+
+const TILES = [{ "id": "T01", "path": [{ "p": 0, "c": 8, "r": 5, "rot": 0 }, { "p": 8.75, "c": 8, "r": 5, "rot": 0 }, { "p": 16.875, "c": 9, "r": 5, "rot": 1.4 }, { "p": 25, "c": 9, "r": 6, "rot": 0.9 }, { "p": 27.5, "c": 9, "r": 6, "rot": 0 }, { "p": 31.583, "c": 9, "r": 6, "rot": 0.55 }, { "p": 36.25, "c": 9, "r": 6, "rot": -0.55 }, { "p": 36.251, "c": 9, "r": 6, "rot": 0 }, { "p": 51.25, "c": 10, "r": 6, "rot": 1.4 }, { "p": 53.75, "c": 10, "r": 6, "rot": 0 }, { "p": 58.417, "c": 10, "r": 6, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 6, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 6, "rot": 0 }, { "p": 81.25, "c": 9, "r": 6, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 6, "rot": 0 }, { "p": 94.375, "c": 9, "r": 6, "rot": 0 }, { "p": 97.188, "c": 8, "r": 6, "rot": -1.4 }, { "p": 100, "c": 8, "r": 5, "rot": -0.9 }], "redAStart": 32.8125, "redBStart": 53.75, "greenStart": 90.125 }, { "id": "T02", "path": [{ "p": 0, "c": 6, "r": 6, "rot": 0 }, { "p": 8.75, "c": 6, "r": 6, "rot": 0 }, { "p": 16.875, "c": 7, "r": 6, "rot": 1.4 }, { "p": 25, "c": 7, "r": 7, "rot": 0.9 }, { "p": 27.5, "c": 7, "r": 7, "rot": 0 }, { "p": 31.583, "c": 7, "r": 7, "rot": 0.55 }, { "p": 36.25, "c": 7, "r": 7, "rot": -0.55 }, { "p": 36.251, "c": 7, "r": 7, "rot": 0 }, { "p": 51.25, "c": 8, "r": 7, "rot": 1.4 }, { "p": 53.75, "c": 8, "r": 7, "rot": 0 }, { "p": 58.417, "c": 8, "r": 7, "rot": -0.35 }, { "p": 63.75, "c": 8, "r": 7, "rot": 0.35 }, { "p": 63.751, "c": 8, "r": 7, "rot": 0 }, { "p": 81.25, "c": 8, "r": 7, "rot": 0 }, { "p": 83.75, "c": 8, "r": 7, "rot": 0 }, { "p": 94.375, "c": 8, "r": 7, "rot": 0 }, { "p": 96.25, "c": 7, "r": 7, "rot": -1.4 }, { "p": 98.125, "c": 6, "r": 7, "rot": -1.4 }, { "p": 100, "c": 6, "r": 6, "rot": -0.9 }], "redAStart": 30, "redBStart": 60, "greenStart": 86.725 }, { "id": "T03", "path": [{ "p": 0, "c": 9, "r": 5, "rot": 0 }, { "p": 8.75, "c": 9, "r": 5, "rot": 0 }, { "p": 16.875, "c": 9, "r": 6, "rot": 0.9 }, { "p": 25, "c": 9, "r": 7, "rot": 0.9 }, { "p": 27.5, "c": 9, "r": 7, "rot": 0 }, { "p": 31.583, "c": 9, "r": 7, "rot": -0.55 }, { "p": 36.25, "c": 9, "r": 7, "rot": 0.55 }, { "p": 36.251, "c": 9, "r": 7, "rot": 0 }, { "p": 51.25, "c": 9, "r": 7, "rot": 0 }, { "p": 53.75, "c": 9, "r": 7, "rot": 0 }, { "p": 58.417, "c": 9, "r": 7, "rot": 0.35 }, { "p": 63.75, "c": 9, "r": 7, "rot": -0.35 }, { "p": 63.751, "c": 9, "r": 7, "rot": 0 }, { "p": 81.25, "c": 9, "r": 7, "rot": 0 }, { "p": 83.75, "c": 9, "r": 7, "rot": 0 }, { "p": 94.375, "c": 9, "r": 7, "rot": 0 }, { "p": 97.188, "c": 9, "r": 6, "rot": -0.9 }, { "p": 100, "c": 9, "r": 5, "rot": -0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 83.75 }, { "id": "T04", "path": [{ "p": 0, "c": 12, "r": 6, "rot": 0 }, { "p": 8.75, "c": 12, "r": 6, "rot": 0 }, { "p": 16.875, "c": 11, "r": 6, "rot": -1.4 }, { "p": 25, "c": 11, "r": 7, "rot": 0.9 }, { "p": 27.5, "c": 11, "r": 7, "rot": 0 }, { "p": 31.583, "c": 11, "r": 7, "rot": -0.55 }, { "p": 36.25, "c": 11, "r": 7, "rot": 0.55 }, { "p": 36.251, "c": 11, "r": 7, "rot": 0 }, { "p": 51.25, "c": 10, "r": 7, "rot": -1.4 }, { "p": 53.75, "c": 10, "r": 7, "rot": 0 }, { "p": 58.417, "c": 10, "r": 7, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 7, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 7, "rot": 0 }, { "p": 81.25, "c": 10, "r": 7, "rot": 0 }, { "p": 83.75, "c": 10, "r": 7, "rot": 0 }, { "p": 94.375, "c": 10, "r": 7, "rot": 0 }, { "p": 96.25, "c": 11, "r": 7, "rot": 1.4 }, { "p": 98.125, "c": 12, "r": 7, "rot": 1.4 }, { "p": 100, "c": 12, "r": 6, "rot": -0.9 }], "redAStart": 30, "redBStart": 60, "greenStart": 86.725 }, { "id": "T05", "path": [{ "p": 0, "c": 5, "r": 8, "rot": 0 }, { "p": 8.75, "c": 5, "r": 8, "rot": 0 }, { "p": 16.875, "c": 6, "r": 8, "rot": 1.4 }, { "p": 25, "c": 7, "r": 8, "rot": 1.4 }, { "p": 27.5, "c": 7, "r": 8, "rot": 0 }, { "p": 31.583, "c": 7, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 7, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 7, "r": 8, "rot": 0 }, { "p": 51.25, "c": 7, "r": 8, "rot": 0 }, { "p": 53.75, "c": 7, "r": 8, "rot": 0 }, { "p": 58.417, "c": 7, "r": 8, "rot": -0.35 }, { "p": 63.75, "c": 7, "r": 8, "rot": 0.35 }, { "p": 63.751, "c": 7, "r": 8, "rot": 0 }, { "p": 81.25, "c": 7, "r": 8, "rot": 0 }, { "p": 83.75, "c": 7, "r": 8, "rot": 0 }, { "p": 94.375, "c": 7, "r": 8, "rot": 0 }, { "p": 97.188, "c": 6, "r": 8, "rot": -1.4 }, { "p": 100, "c": 5, "r": 8, "rot": -1.4 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 90.125 }, { "id": "T06", "path": [{ "p": 0, "c": 7, "r": 7, "rot": 0 }, { "p": 8.75, "c": 7, "r": 7, "rot": 0 }, { "p": 16.875, "c": 8, "r": 7, "rot": 1.4 }, { "p": 25, "c": 8, "r": 8, "rot": 0.9 }, { "p": 27.5, "c": 8, "r": 8, "rot": 0 }, { "p": 31.583, "c": 8, "r": 8, "rot": 0.55 }, { "p": 36.25, "c": 8, "r": 8, "rot": -0.55 }, { "p": 36.251, "c": 8, "r": 8, "rot": 0 }, { "p": 51.25, "c": 9, "r": 8, "rot": 1.4 }, { "p": 53.75, "c": 9, "r": 8, "rot": 0 }, { "p": 58.417, "c": 9, "r": 8, "rot": -0.35 }, { "p": 63.75, "c": 9, "r": 8, "rot": 0.35 }, { "p": 63.751, "c": 9, "r": 8, "rot": 0 }, { "p": 81.25, "c": 8, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 8, "r": 8, "rot": 0 }, { "p": 94.375, "c": 8, "r": 8, "rot": 0 }, { "p": 97.188, "c": 7, "r": 8, "rot": -1.4 }, { "p": 100, "c": 7, "r": 7, "rot": -0.9 }], "redAStart": 32.8125, "redBStart": 56.5625, "greenStart": 86.725 }, { "id": "T07", "path": [{ "p": 0, "c": 10, "r": 6, "rot": 0 }, { "p": 8.75, "c": 10, "r": 6, "rot": 0 }, { "p": 16.875, "c": 10, "r": 7, "rot": 0.9 }, { "p": 25, "c": 10, "r": 8, "rot": 0.9 }, { "p": 27.5, "c": 10, "r": 8, "rot": 0 }, { "p": 31.583, "c": 10, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 10, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 10, "r": 8, "rot": 0 }, { "p": 51.25, "c": 10, "r": 8, "rot": 0 }, { "p": 53.75, "c": 10, "r": 8, "rot": 0 }, { "p": 58.417, "c": 10, "r": 8, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 8, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 8, "rot": 0 }, { "p": 81.25, "c": 9, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 8, "rot": 0 }, { "p": 94.375, "c": 9, "r": 8, "rot": 0 }, { "p": 96.25, "c": 10, "r": 8, "rot": 1.4 }, { "p": 98.125, "c": 10, "r": 7, "rot": -0.9 }, { "p": 100, "c": 10, "r": 6, "rot": -0.9 }], "redAStart": 27.5, "redBStart": 56.5625, "greenStart": 83.75 }, { "id": "T08", "path": [{ "p": 0, "c": 12, "r": 8, "rot": 0 }, { "p": 8.75, "c": 12, "r": 8, "rot": 0 }, { "p": 25, "c": 11, "r": 8, "rot": -1.4 }, { "p": 27.5, "c": 11, "r": 8, "rot": 0 }, { "p": 31.583, "c": 11, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 11, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 11, "r": 8, "rot": 0 }, { "p": 51.25, "c": 11, "r": 8, "rot": 0 }, { "p": 53.75, "c": 11, "r": 8, "rot": 0 }, { "p": 58.417, "c": 11, "r": 8, "rot": 0.35 }, { "p": 63.75, "c": 11, "r": 8, "rot": -0.35 }, { "p": 63.751, "c": 11, "r": 8, "rot": 0 }, { "p": 81.25, "c": 10, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 10, "r": 8, "rot": 0 }, { "p": 94.375, "c": 10, "r": 8, "rot": 0 }, { "p": 97.188, "c": 11, "r": 8, "rot": 1.4 }, { "p": 100, "c": 12, "r": 8, "rot": 1.4 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 86.725 }, { "id": "T09", "path": [{ "p": 0, "c": 13, "r": 9, "rot": 0 }, { "p": 8.75, "c": 13, "r": 9, "rot": 0 }, { "p": 16.875, "c": 12, "r": 9, "rot": -1.4 }, { "p": 25, "c": 12, "r": 8, "rot": -0.9 }, { "p": 27.5, "c": 12, "r": 8, "rot": 0 }, { "p": 31.583, "c": 12, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 12, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 12, "r": 8, "rot": 0 }, { "p": 51.25, "c": 12, "r": 8, "rot": 0 }, { "p": 53.75, "c": 12, "r": 8, "rot": 0 }, { "p": 58.417, "c": 12, "r": 8, "rot": 0.35 }, { "p": 63.75, "c": 12, "r": 8, "rot": -0.35 }, { "p": 63.751, "c": 12, "r": 8, "rot": 0 }, { "p": 81.25, "c": 11, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 11, "r": 8, "rot": 0 }, { "p": 94.375, "c": 11, "r": 8, "rot": 0 }, { "p": 96.25, "c": 12, "r": 8, "rot": 1.4 }, { "p": 98.125, "c": 13, "r": 8, "rot": 1.4 }, { "p": 100, "c": 13, "r": 9, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 90.125 }, { "id": "T10", "path": [{ "p": 0, "c": 5, "r": 10, "rot": 0 }, { "p": 8.75, "c": 5, "r": 10, "rot": 0 }, { "p": 16.875, "c": 6, "r": 10, "rot": 1.4 }, { "p": 25, "c": 6, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 6, "r": 9, "rot": 0 }, { "p": 31.583, "c": 6, "r": 9, "rot": 0.55 }, { "p": 36.25, "c": 6, "r": 9, "rot": -0.55 }, { "p": 36.251, "c": 6, "r": 9, "rot": 0 }, { "p": 51.25, "c": 7, "r": 9, "rot": 1.4 }, { "p": 53.75, "c": 7, "r": 9, "rot": 0 }, { "p": 58.417, "c": 7, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 7, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 7, "r": 9, "rot": 0 }, { "p": 81.25, "c": 7, "r": 9, "rot": 0 }, { "p": 83.75, "c": 7, "r": 9, "rot": 0 }, { "p": 94.375, "c": 7, "r": 9, "rot": 0 }, { "p": 96.25, "c": 6, "r": 9, "rot": -1.4 }, { "p": 98.125, "c": 5, "r": 9, "rot": -1.4 }, { "p": 100, "c": 5, "r": 10, "rot": 0.9 }], "redAStart": 30, "redBStart": 60, "greenStart": 90.125 }, { "id": "T11", "path": [{ "p": 0, "c": 7, "r": 11, "rot": 0 }, { "p": 8.75, "c": 7, "r": 11, "rot": 0 }, { "p": 14.166, "c": 8, "r": 11, "rot": 1.4 }, { "p": 19.584, "c": 8, "r": 10, "rot": -0.9 }, { "p": 25, "c": 8, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 8, "r": 9, "rot": 0 }, { "p": 31.583, "c": 8, "r": 9, "rot": -0.55 }, { "p": 36.25, "c": 8, "r": 9, "rot": 0.55 }, { "p": 36.251, "c": 8, "r": 9, "rot": 0 }, { "p": 51.25, "c": 8, "r": 9, "rot": 0 }, { "p": 53.75, "c": 8, "r": 9, "rot": 0 }, { "p": 58.417, "c": 8, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 8, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 8, "r": 9, "rot": 0 }, { "p": 81.25, "c": 8, "r": 9, "rot": 0 }, { "p": 83.75, "c": 8, "r": 9, "rot": 0 }, { "p": 94.375, "c": 8, "r": 9, "rot": 0 }, { "p": 96.25, "c": 7, "r": 9, "rot": -1.4 }, { "p": 98.125, "c": 7, "r": 10, "rot": 0.9 }, { "p": 100, "c": 7, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 86.725 }, { "id": "T12", "path": [{ "p": 0, "c": 9, "r": 12, "rot": 0 }, { "p": 8.75, "c": 9, "r": 12, "rot": 0 }, { "p": 14.166, "c": 9, "r": 11, "rot": -0.9 }, { "p": 19.584, "c": 9, "r": 10, "rot": -0.9 }, { "p": 25, "c": 9, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 9, "r": 9, "rot": 0 }, { "p": 31.583, "c": 9, "r": 9, "rot": -0.55 }, { "p": 36.25, "c": 9, "r": 9, "rot": 0.55 }, { "p": 36.251, "c": 9, "r": 9, "rot": 0 }, { "p": 51.25, "c": 10, "r": 9, "rot": 1.4 }, { "p": 53.75, "c": 10, "r": 9, "rot": 0 }, { "p": 58.417, "c": 10, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 9, "rot": 0 }, { "p": 81.25, "c": 9, "r": 9, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 9, "rot": 0 }, { "p": 94.375, "c": 9, "r": 9, "rot": 0 }, { "p": 96.25, "c": 9, "r": 10, "rot": 0.9 }, { "p": 98.125, "c": 9, "r": 11, "rot": 0.9 }, { "p": 100, "c": 9, "r": 12, "rot": 0.9 }], "redAStart": 27.5, "redBStart": 53.75, "greenStart": 83.75 }, { "id": "T13", "path": [{ "p": 0, "c": 11, "r": 11, "rot": 0 }, { "p": 8.75, "c": 11, "r": 11, "rot": 0 }, { "p": 14.166, "c": 10, "r": 11, "rot": -1.4 }, { "p": 19.584, "c": 10, "r": 10, "rot": -0.9 }, { "p": 25, "c": 10, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 10, "r": 9, "rot": 0 }, { "p": 31.583, "c": 10, "r": 9, "rot": 0.55 }, { "p": 36.25, "c": 10, "r": 9, "rot": -0.55 }, { "p": 36.251, "c": 10, "r": 9, "rot": 0 }, { "p": 51.25, "c": 11, "r": 9, "rot": 1.4 }, { "p": 53.75, "c": 11, "r": 9, "rot": 0 }, { "p": 58.417, "c": 11, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 11, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 11, "r": 9, "rot": 0 }, { "p": 81.25, "c": 10, "r": 9, "rot": -1.4 }, { "p": 83.75, "c": 10, "r": 9, "rot": 0 }, { "p": 94.375, "c": 10, "r": 9, "rot": 0 }, { "p": 96.25, "c": 11, "r": 9, "rot": 1.4 }, { "p": 98.125, "c": 11, "r": 10, "rot": 0.9 }, { "p": 100, "c": 11, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 56.5625, "greenStart": 86.725 }, { "id": "T14", "path": [{ "p": 0, "c": 13, "r": 10, "rot": 0 }, { "p": 8.75, "c": 13, "r": 10, "rot": 0 }, { "p": 16.875, "c": 12, "r": 10, "rot": -1.4 }, { "p": 25, "c": 12, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 12, "r": 9, "rot": 0 }, { "p": 31.583, "c": 12, "r": 9, "rot": -0.55 }, { "p": 36.25, "c": 12, "r": 9, "rot": 0.55 }, { "p": 36.251, "c": 12, "r": 9, "rot": 0 }, { "p": 51.25, "c": 12, "r": 9, "rot": 0 }, { "p": 53.75, "c": 12, "r": 9, "rot": 0 }, { "p": 58.417, "c": 12, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 12, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 12, "r": 9, "rot": 0 }, { "p": 81.25, "c": 11, "r": 9, "rot": -1.4 }, { "p": 83.75, "c": 11, "r": 9, "rot": 0 }, { "p": 94.375, "c": 11, "r": 9, "rot": 0 }, { "p": 96.25, "c": 12, "r": 9, "rot": 1.4 }, { "p": 98.125, "c": 13, "r": 9, "rot": 1.4 }, { "p": 100, "c": 13, "r": 10, "rot": 0.9 }], "redAStart": 30, "redBStart": 56.5625, "greenStart": 90.125 }, { "id": "T15", "path": [{ "p": 0, "c": 6, "r": 11, "rot": 0 }, { "p": 8.75, "c": 6, "r": 11, "rot": 0 }, { "p": 14.166, "c": 7, "r": 11, "rot": 1.4 }, { "p": 19.584, "c": 8, "r": 11, "rot": 1.4 }, { "p": 25, "c": 8, "r": 10, "rot": -0.9 }, { "p": 27.5, "c": 8, "r": 10, "rot": 0 }, { "p": 31.583, "c": 8, "r": 10, "rot": 0.55 }, { "p": 36.25, "c": 8, "r": 10, "rot": -0.55 }, { "p": 36.251, "c": 8, "r": 10, "rot": 0 }, { "p": 51.25, "c": 8, "r": 10, "rot": 0 }, { "p": 53.75, "c": 8, "r": 10, "rot": 0 }, { "p": 58.417, "c": 8, "r": 10, "rot": 0.35 }, { "p": 63.75, "c": 8, "r": 10, "rot": -0.35 }, { "p": 63.751, "c": 8, "r": 10, "rot": 0 }, { "p": 81.25, "c": 8, "r": 10, "rot": 0 }, { "p": 83.75, "c": 8, "r": 10, "rot": 0 }, { "p": 94.375, "c": 8, "r": 10, "rot": 0 }, { "p": 96.25, "c": 7, "r": 10, "rot": -1.4 }, { "p": 98.125, "c": 6, "r": 10, "rot": -1.4 }, { "p": 100, "c": 6, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 86.725 }, { "id": "T16", "path": [{ "p": 0, "c": 8, "r": 12, "rot": 0 }, { "p": 8.75, "c": 8, "r": 12, "rot": 0 }, { "p": 16.875, "c": 9, "r": 12, "rot": 1.4 }, { "p": 25, "c": 9, "r": 11, "rot": -0.9 }, { "p": 27.5, "c": 9, "r": 11, "rot": 0 }, { "p": 31.583, "c": 9, "r": 11, "rot": -0.55 }, { "p": 36.25, "c": 9, "r": 11, "rot": 0.55 }, { "p": 36.251, "c": 9, "r": 11, "rot": 0 }, { "p": 51.25, "c": 9, "r": 10, "rot": -0.9 }, { "p": 53.75, "c": 9, "r": 10, "rot": 0 }, { "p": 58.417, "c": 9, "r": 10, "rot": -0.35 }, { "p": 63.75, "c": 9, "r": 10, "rot": 0.35 }, { "p": 63.751, "c": 9, "r": 10, "rot": 0 }, { "p": 81.25, "c": 9, "r": 10, "rot": 0 }, { "p": 83.75, "c": 9, "r": 10, "rot": 0 }, { "p": 94.375, "c": 9, "r": 10, "rot": 0 }, { "p": 96.25, "c": 8, "r": 10, "rot": -1.4 }, { "p": 98.125, "c": 8, "r": 11, "rot": 0.9 }, { "p": 100, "c": 8, "r": 12, "rot": 0.9 }], "redAStart": 27.5, "redBStart": 60, "greenStart": 83.75 }, { "id": "T17", "path": [{ "p": 0, "c": 12, "r": 11, "rot": 0 }, { "p": 8.75, "c": 12, "r": 11, "rot": 0 }, { "p": 14.166, "c": 11, "r": 11, "rot": -1.4 }, { "p": 19.584, "c": 10, "r": 11, "rot": -1.4 }, { "p": 25, "c": 10, "r": 10, "rot": -0.9 }, { "p": 27.5, "c": 10, "r": 10, "rot": 0 }, { "p": 31.583, "c": 10, "r": 10, "rot": -0.55 }, { "p": 36.25, "c": 10, "r": 10, "rot": 0.55 }, { "p": 36.251, "c": 10, "r": 10, "rot": 0 }, { "p": 51.25, "c": 11, "r": 10, "rot": 1.4 }, { "p": 53.75, "c": 11, "r": 10, "rot": 0 }, { "p": 58.417, "c": 11, "r": 10, "rot": 0.35 }, { "p": 63.75, "c": 11, "r": 10, "rot": -0.35 }, { "p": 63.751, "c": 11, "r": 10, "rot": 0 }, { "p": 81.25, "c": 10, "r": 10, "rot": -1.4 }, { "p": 83.75, "c": 10, "r": 10, "rot": 0 }, { "p": 94.375, "c": 10, "r": 10, "rot": 0 }, { "p": 96.25, "c": 11, "r": 10, "rot": 1.4 }, { "p": 98.125, "c": 12, "r": 10, "rot": 1.4 }, { "p": 100, "c": 12, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 53.75, "greenStart": 86.725 }, { "id": "T18", "path": [{ "p": 0, "c": 10, "r": 13, "rot": 0 }, { "p": 8.75, "c": 10, "r": 13, "rot": 0 }, { "p": 16.875, "c": 9, "r": 13, "rot": -1.4 }, { "p": 25, "c": 9, "r": 12, "rot": -0.9 }, { "p": 27.5, "c": 9, "r": 12, "rot": 0 }, { "p": 31.583, "c": 9, "r": 12, "rot": 0.55 }, { "p": 36.25, "c": 9, "r": 12, "rot": -0.55 }, { "p": 36.251, "c": 9, "r": 12, "rot": 0 }, { "p": 43.75, "c": 10, "r": 12, "rot": 1.4 }, { "p": 51.25, "c": 10, "r": 11, "rot": -0.9 }, { "p": 53.75, "c": 10, "r": 11, "rot": 0 }, { "p": 58.417, "c": 10, "r": 11, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 11, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 11, "rot": 0 }, { "p": 81.25, "c": 9, "r": 11, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 11, "rot": 0 }, { "p": 94.375, "c": 9, "r": 11, "rot": 0 }, { "p": 96.25, "c": 10, "r": 11, "rot": 1.4 }, { "p": 98.125, "c": 10, "r": 12, "rot": 0.9 }, { "p": 100, "c": 10, "r": 13, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 53.75, "greenStart": 90.125 }];
+
+type Tile = typeof TILES[number];
+
+const TILE_LOOP = '32s';
+const TILE_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
+function keyframes(name: string, frames: Array<[number, number | string]>) {
+  return `@keyframes ${name} {\n${frames
+    .map(([p, value]) => `  ${Number(p.toFixed(3))}% { opacity: ${value}; }\n`)
+    .join('')}}\n`;
+}
+
+function offOnOff(name: string, start: number, end: number) {
+  return keyframes(name, [
+    [0, 0],
+    [Math.max(0, start - 0.001), 0],
+    [start, 1],
+    [end, 1],
+    [Math.min(100, end + 0.001), 0],
+    [100, 0],
+  ]);
+}
+
+function neutralStateOpacity(name: string, tile: Tile) {
+  return keyframes(name, [
+    [0, 1],
+    [Math.max(0, tile.redAStart - 0.001), 1],
+    [tile.redAStart, 0],
+    [36.25, 0],
+    [36.251, 1],
+
+    [Math.max(36.251, tile.redBStart - 0.001), 1],
+    [tile.redBStart, 0],
+    [63.75, 0],
+    [63.751, 1],
+
+    [Math.max(63.751, tile.greenStart - 0.001), 1],
+    [tile.greenStart, 0],
+    [94.375, 0],
+    [94.376, 1],
+    [100, 1],
+  ]);
+}
+
+function warmGlowOpacity(name: string, tile: Tile) {
+  return keyframes(name, [
+    [0, 0],
+    [8.75, 0],
+    [12, 0.10],
+    [25, 0.10],
+    [27.499, 0],
+    [Math.max(27.499, tile.redAStart - 0.001), 0],
+    [tile.redAStart, 0],
+    [36.25, 0],
+    [36.251, 0],
+    [40, 0.10],
+    [51.25, 0.10],
+    [53.749, 0],
+    [Math.max(53.749, tile.redBStart - 0.001), 0],
+    [tile.redBStart, 0],
+    [63.75, 0],
+    [63.751, 0],
+    [70, 0.10],
+    [81.25, 0.10],
+    [83.749, 0],
+    [Math.max(83.749, tile.greenStart - 0.001), 0],
+    [tile.greenStart, 0],
+    [94.375, 0],
+    [94.376, 0],
+    [100, 0],
+  ]);
+}
+
+function tileCoreOpacity(name: string, tile: Tile) {
+  return keyframes(name, [
+    [0, 0.78],
+    [8.75, 0.78],
+    [15, 0.92],
+    [25, 0.92],
+    [27.499, 0.92],
+    [Math.max(27.499, tile.redAStart - 0.001), 0.92],
+    [tile.redAStart, 0.94],
+    [36.25, 0.94],
+    [36.251, 0.92],
+    [40, 0.92],
+    [51.25, 0.92],
+    [53.749, 0.95],
+    [Math.max(53.749, tile.redBStart - 0.001), 0.95],
+    [tile.redBStart, 0.96],
+    [63.75, 0.96],
+    [63.751, 0.95],
+    [68, 0.95],
+    [81.25, 1],
+    [83.749, 1],
+    [Math.max(83.749, tile.greenStart - 0.001), 1],
+    [tile.greenStart, 1],
+    [94.375, 1],
+    [94.376, 1],
+    [100, 0.78],
+  ]);
+}
+
+function buildAnimationStyle() {
+  let css = `
+    .sa-tile-opacity-layer {
+      will-change: opacity;
+      backface-visibility: hidden;
+      transform-style: preserve-3d;
+      contain: paint;
+    }
+
+    .sa-tile-core {
+      will-change: opacity;
+      backface-visibility: hidden;
+      transform-style: preserve-3d;
+      contain: paint;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sa-tile-opacity-layer,
+      .sa-tile-core {
+        animation: none !important;
+      }
+    }
+  `;
+
+  TILES.forEach((tile) => {
+    css += `@keyframes move-${tile.id} {\n`;
+    tile.path.forEach((kp) => {
+      const left = (kp.c - 1) * 18;
+      const top = (kp.r - 1) * 18;
+      css += `  ${kp.p}% { transform: translate3d(${left}px, ${top}px, 0) rotate(${kp.rot}deg); }\n`;
+    });
+    css += `}\n`;
+
+    css += tileCoreOpacity(`tile-core-opacity-${tile.id}`, tile);
+    css += neutralStateOpacity(`tile-border-neutral-${tile.id}`, tile);
+    css += offOnOff(`tile-border-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-border-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-border-green-${tile.id}`, tile.greenStart, 94.375);
+
+    css += warmGlowOpacity(`tile-glow-warm-${tile.id}`, tile);
+    css += offOnOff(`tile-glow-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-glow-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-glow-green-${tile.id}`, tile.greenStart, 94.375);
+
+    css += neutralStateOpacity(`tile-terminal-neutral-${tile.id}`, tile);
+    css += offOnOff(`tile-terminal-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-terminal-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-terminal-green-${tile.id}`, tile.greenStart, 94.375);
+
+    css += neutralStateOpacity(`tile-trace-neutral-${tile.id}`, tile);
+    css += offOnOff(`tile-trace-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-trace-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-trace-green-${tile.id}`, tile.greenStart, 94.375);
+  });
+
+  css += `@keyframes state-label {\n`;
+  css += `  0% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  27.499% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  27.5% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  36.25% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  36.251% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  53.749% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  53.75% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  63.75% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  63.751% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  83.749% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  83.75% { content: "STATE: STABLE"; color: rgba(110,231,168,0.8); }\n`;
+  css += `  94.375% { content: "STATE: STABLE"; color: rgba(110,231,168,0.8); }\n`;
+  css += `  94.376% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  100% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `}\n`;
+
+  return css;
+}
+
+export default function TileEntityForge() {
+  const tileFieldRef = useRef<HTMLDivElement | null>(null);
+  const animationStyle = useMemo(() => buildAnimationStyle(), []);
+
+  useTileFieldSuperAnimation(tileFieldRef, TILES);
+
+  return (
+    <div
+      className="relative w-full h-full flex flex-col items-center justify-center rounded-[32px] overflow-hidden chamber-panel py-[40px] md:py-[60px]"
+      style={{
+        background: 'linear-gradient(180deg, rgba(13,16,20,0.98), rgba(5,6,8,0.99))',
+        border: '1px solid rgba(255,255,255,0.11)',
+        boxShadow: '0 36px 110px rgba(0,0,0,0.58), inset 0 1px 0 rgba(255,255,255,0.045)'
+      }}
+      aria-label="Self-assembling tile entity with nullixforge principle and computation trace, where learned constraints are pinned inside the trace as unstable formations become stable structure"
+    >
+      <style dangerouslySetInnerHTML={{ __html: animationStyle }} />
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        .chamber-panel { min-height: 740px !important; }
+        @media (min-width: 768px) {
+          .chamber-panel { min-height: 800px !important; }
+        }
+        @media (min-width: 1024px) {
+          .chamber-panel { min-height: 900px !important; }
+        }
+      `}} />
+
+      <div
+        className="absolute bottom-[-80px] left-1/2 w-[360px] h-[180px] -translate-x-1/2 pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, rgba(255,106,42,0.18), rgba(223,165,91,0.055), transparent 68%)',
+          opacity: 0.7
+        }}
+      />
+
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `
+            linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px)
+          `,
+          backgroundSize: '28px 28px',
+          opacity: 0.38
+        }}
+      />
+
+      <div className="absolute top-[28px] left-[32px] font-mono text-[10px] tracking-[0.16em] text-[rgba(244,240,232,0.58)] uppercase">
+        LAB
+      </div>
+
+      <div className="absolute top-[28px] right-[32px] font-mono text-[10px] tracking-[0.16em] text-[rgba(244,240,232,0.58)] uppercase after:content-['STATE:_FORMING'] after:animate-[state-label_32s_cubic-bezier(0.16,1,0.3,1)_infinite] motion-reduce:after:content-['STATE:_STABLE'] motion-reduce:after:animate-none" />
+
+      <div className="absolute bottom-[28px] right-[32px] font-mono text-[10px] tracking-[0.16em] text-[rgba(244,240,232,0.58)] uppercase text-right">
+        TILE FIELD [18x18]
+        <br />
+        <span className="text-[8px] opacity-70">CONTROLLED CELLULAR FIELD</span>
+      </div>
+
+      <OverlayLayers />
+
+      <div
+        ref={tileFieldRef}
+        data-sa-tile-field
+        className="relative rounded-[20px] scale-[0.74] min-[390px]:scale-[0.88] min-[520px]:scale-100"
+        style={{
+          order: 2,
+          width: '324px',
+          height: '324px',
+          background: 'linear-gradient(180deg, rgba(7,9,12,0.94), rgba(2,3,4,0.96))',
+          border: '1px solid rgba(244,240,232,0.075)',
+          boxShadow: '0 28px 80px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.04)',
+          backgroundImage: `
+            linear-gradient(rgba(244,240,232,0.028) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(244,240,232,0.028) 1px, transparent 1px)
+          `,
+          backgroundSize: '18px 18px'
+        }}
+      >
+        <div className="absolute inset-0 pointer-events-none">
+          {Array.from({ length: 18 }).map((_, i) => (
+            <React.Fragment key={`tick-${i}`}>
+              <div
+                className="absolute top-[-3px]"
+                style={{
+                  left: `${i * 18 + 8.5}px`,
+                  width: '1px',
+                  height: '3px',
+                  background: i % 6 === 0 ? 'rgba(223,165,91,0.18)' : 'rgba(244,240,232,0.12)'
+                }}
+              />
+              <div
+                className="absolute left-[-3px]"
+                style={{
+                  top: `${i * 18 + 8.5}px`,
+                  width: '3px',
+                  height: '1px',
+                  background: i % 6 === 0 ? 'rgba(223,165,91,0.18)' : 'rgba(244,240,232,0.12)'
+                }}
+              />
+            </React.Fragment>
+          ))}
+
+          <div className="absolute top-[-16px] left-[-2px] font-mono text-[8px] text-[rgba(244,240,232,0.26)]">00</div>
+          <div className="absolute top-[-16px] right-[-4px] font-mono text-[8px] text-[rgba(244,240,232,0.26)]">18</div>
+          <div className="absolute bottom-[-16px] left-[-4px] font-mono text-[8px] text-[rgba(244,240,232,0.26)]">18</div>
+
+          {TILES.map((tile) => (
+            <div
+              key={tile.id}
+              data-sa-tile
+              data-sa-tile-motion={tile.id}
+              className="absolute"
+              style={{
+                width: '18px',
+                height: '18px',
+                transformOrigin: 'center center',
+                animation: `move-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                willChange: 'transform',
+              }}
+            >
+              <div
+                className="sa-tile-core absolute left-[2px] top-[2px] w-[14px] h-[14px] rounded-[2px] overflow-hidden"
+                style={{
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.000) 38%), linear-gradient(135deg, #161B22 0%, #0B0E13 52%, #050607 100%)',
+                  boxShadow: '0 4px 10px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.055), inset 0 -1px 0 rgba(0,0,0,0.38)',
+                  animation: `tile-core-opacity-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`
+                }}
+              >
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(255,106,42,0.1), transparent 68%)',
+                    animation: `tile-glow-warm-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(255,75,62,0.06), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(255,75,62,0.16), 0 0 8px rgba(255,75,62,0.08)',
+                    animation: `tile-glow-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(255,75,62,0.04), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(255,75,62,0.12), 0 0 6px rgba(255,75,62,0.06)',
+                    animation: `tile-glow-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(110,231,168,0.07), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(110,231,168,0.18), 0 0 10px rgba(110,231,168,0.10)',
+                    animation: `tile-glow-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(244,240,232,0.095)',
+                    animation: `tile-border-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(255,75,62,0.12)',
+                    animation: `tile-border-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(255,75,62,0.10)',
+                    animation: `tile-border-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(110,231,168,0.14)',
+                    animation: `tile-border-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(223,165,91,0.36)',
+                    animation: `tile-terminal-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.6)',
+                    animation: `tile-terminal-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.5)',
+                    animation: `tile-terminal-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(110,231,168,0.7)',
+                    animation: `tile-terminal-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(244,240,232,0.12)',
+                    animation: `tile-trace-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(244,240,232,0.12)',
+                    animation: `tile-trace-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(110,231,168,0.3)',
+                    animation: `tile-trace-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(110,231,168,0.3)',
+                    animation: `tile-trace-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="absolute inset-[0px] rounded-[1px] opacity-0 motion-reduce:opacity-100 pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(110,231,168,0.07), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(110,231,168,0.18), 0 0 10px rgba(110,231,168,0.10)'
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## ماذا تغير بالضبط؟
+
+القديم كان يحرك هذه الخصائص داخل keyframes:
+
+```txt
+background
+box-shadow
+border-color
+```
+
+وهذه خصائص تدخل غالبًا في paint، وليست المسار الأنظف للـ compositor.
+
+الجديد صار يعمل هكذا:
+
+```txt
+كل لون / glow / border / trace / dot أصبح layer ثابتة
+كل layer لها background/boxShadow/border ثابت لا يتغير
+الشيء الوحيد الذي يتحرك هو opacity
+```
+
+وهذا يعني أن:
+
+```txt
+glow الأحمر A = طبقة ثابتة + opacity timing
+glow الأحمر B = طبقة ثابتة + opacity timing
+glow الأخضر = طبقة ثابتة + opacity timing
+terminal dot = أربع طبقات ثابتة تتبادل opacity
+trace lines = طبقات ثابتة تتبادل opacity
+border = طبقات border ثابتة تتبادل opacity
+```
+
+هذا يطبق فكرة “GSAP/logic للتنسيق، والـ Silent Compositor للتنفيذ” التي في blueprint: المخ يقرر التوقيت، والعضلات تنفذ `transform/opacity` على الـ GPU قدر الإمكان. 
+
+---
+
+## فرق الأداء المتوقع
+
+| الجزء                  | قبل                                   | بعد                                    |
+| ---------------------- | ------------------------------------- | -------------------------------------- |
+| حركة tile position     | CSS keyframes fallback + WAAPI سابقًا | WAAPI عبر `useTileFieldSuperAnimation` |
+| glow                   | تحريك `background + box-shadow`       | طبقات ثابتة + `opacity`                |
+| terminal dot           | تحريك `background`                    | stacked dots + `opacity`               |
+| trace lines            | تحريك `background`                    | stacked traces + `opacity`             |
+| border                 | تحريك `border-color`                  | stacked borders + `opacity`            |
+| React state            | `useEffect + setAnimationStyle`       | `useMemo` بدون state إضافي             |
+| paint pressure         | أعلى                                  | أقل                                    |
+| compositor suitability | جزئي                                  | أعلى بكثير                             |
+
+## هل يغير شكل الموقع؟
+
+المفروض لا يغير الشكل المقصود، لأننا حافظنا على نفس:
+
+```txt
+ألوان glow
+قيم boxShadow
+قيم border alpha
+توقيت redA/redB/green
+مسارات الحركة
+أحجام tile/dot/trace
+مواضع terminal/trace
+loop duration = 32s
+easing = cubic-bezier(0.16, 1, 0.3, 1)
+```
+
+الفرق الوحيد أن اللون لم يعد “يتغير” داخل نفس العنصر؛ صار يظهر ويختفي من طبقات ثابتة فوق بعضها.
+
+## هل يحقق ما نرجوه؟
+
+نعم، هذه المرحلة تنقل `TileEntityForge` من:
+
+```txt
+transform compositor-safe + visual paint animations
+```
+
+إلى:
+
+```txt
+transform compositor-safe + visual opacity layers
+```
+
+وهذا هو أقرب شكل عملي لـ SuperAnimation داخل DOM بدون تغيير الشكل. لا أقدر أقول إنه GPU-only بنسبة مطلقة لأن `box-shadow` نفسه موجود كطبقة مرسومة، لكننا لم نعد نعيد حسابه كل frame؛ أصبح static layer، والتحريك صار opacity فقط.
+"
+
+
+لقد قمنا بتنفيذ هذه المرحله بدقه 100% : "
+
+تم. هذه المرحلة تخص:
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/pages/Home.tsx
+```
+
+وسنضيف hook جديد واحد فقط:
+
+```txt
+src/superanimation/useRevealSuperAnimation.ts
+```
+
+ثم نضيف export واحد في:
+
+```txt
+src/superanimation/index.ts
+```
+
+الفكرة هنا: `Navigation` يأخذ WAAPI للـ mobile dropdown بدل CSS animation inline، و`Footer/Home` يأخذان reveal/stagger عبر `IntersectionObserver` للتنسيق فقط، ثم التنفيذ عبر `WAAPI + transform/opacity + PhysicsFactory linear()`، بدون تغيير الألوان أو المقاسات أو الترتيب أو النصوص. هذا مطابق لفكرة أن GSAP/الـ logic ينسّق، والـ Silent Compositor ينفذ على `transform/opacity` فقط قدر الإمكان. 
+كما أن الكود يعتمد على طبقة `src/superanimation` التي سبق تنفيذها: `CompositorBridge`, `PhysicsFactory`, `PhysicsCompressor`, `MotionController`, `LogicKernel`, و`useSuperAnimationScope`. 
+
+---
+
+## 1. ملف جديد يجب إنشاؤه
+
+### `src/superanimation/useRevealSuperAnimation.ts`
+
+```ts
+import { useLayoutEffect, type DependencyList, type RefObject } from 'react';
+import { animateOnCompositor, createCleanupStack } from './CompositorBridge';
+import { canUseDOM, prefersReducedMotion, supportsWAAPI } from './featureSupport';
+import { PhysicsFactory } from './PhysicsFactory';
+
+type RevealOptions = {
+  selector?: string;
+  rootMargin?: string;
+  threshold?: number;
+  once?: boolean;
+};
+
+function readNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function prepareElement(element: HTMLElement, y: number): () => void {
+  const previousOpacity = element.style.opacity;
+  const previousTransform = element.style.transform;
+  const previousWillChange = element.style.willChange;
+
+  element.style.opacity = '0';
+  element.style.transform = `translate3d(0, ${y}px, 0)`;
+  element.style.willChange = element.dataset.saWillChange || 'opacity, transform';
+
+  return () => {
+    element.style.opacity = previousOpacity;
+    element.style.transform = previousTransform;
+    element.style.willChange = previousWillChange;
+  };
+}
+
+export function useRevealSuperAnimation(
+  rootRef: RefObject<HTMLElement | null>,
+  deps: DependencyList = [],
+  options: RevealOptions = {},
+): void {
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+
+    if (!root || !canUseDOM) return undefined;
+
+    const selector = options.selector ?? '[data-sa-reveal]';
+    const targets = Array.from(root.querySelectorAll<HTMLElement>(selector));
+
+    if (targets.length === 0) return undefined;
+
+    const stack = createCleanupStack();
+
+    if (!supportsWAAPI() || prefersReducedMotion()) {
+      targets.forEach((target) => {
+        target.style.opacity = '1';
+        target.style.transform = 'none';
+      });
+
+      return undefined;
+    }
+
+    const revealed = new Set<HTMLElement>();
+
+    targets.forEach((target) => {
+      const y = readNumber(target.dataset.saRevealY, 18);
+      stack.add(prepareElement(target, y));
+    });
+
+    const reveal = (target: HTMLElement, index: number) => {
+      if (revealed.has(target)) return;
+
+      revealed.add(target);
+
+      const y = readNumber(target.dataset.saRevealY, 18);
+      const duration = readNumber(target.dataset.saRevealDuration, 680);
+      const delay = readNumber(target.dataset.saRevealDelay, index * 70);
+
+      const motion = PhysicsFactory.bakeSpringScalar(0, 1, 0, {
+        stiffness: 170,
+        damping: 30,
+        duration,
+        precisionMs: 5,
+      });
+
+      const handle = animateOnCompositor(
+        target,
+        [
+          {
+            opacity: '0',
+            transform: `translate3d(0, ${y}px, 0)`,
+          },
+          {
+            opacity: '1',
+            transform: 'translate3d(0, 0, 0)',
+          },
+        ],
+        {
+          duration: motion.duration,
+          delay,
+          easing: motion.easing,
+          fill: 'forwards',
+          willChange: 'opacity, transform',
+        },
+      );
+
+      handle.animation?.addEventListener(
+        'finish',
+        () => {
+          target.style.opacity = '1';
+          target.style.transform = 'translate3d(0, 0, 0)';
+        },
+        { once: true },
+      );
+
+      stack.add(handle);
+    };
+
+    if (!('IntersectionObserver' in window)) {
+      targets.forEach((target, index) => reveal(target, index));
+      return stack.run;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+
+          const target = entry.target as HTMLElement;
+          const index = targets.indexOf(target);
+
+          reveal(target, Math.max(0, index));
+
+          if (options.once !== false) {
+            observer.unobserve(target);
+          }
+        });
+      },
+      {
+        root: null,
+        rootMargin: options.rootMargin ?? '0px 0px -8% 0px',
+        threshold: options.threshold ?? 0.14,
+      },
+    );
+
+    targets.forEach((target) => observer.observe(target));
+
+    stack.add(() => observer.disconnect());
+
+    return stack.run;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+```
+
+---
+
+## 2. تعديل `src/superanimation/index.ts`
+
+أضف هذا السطر في آخر الملف بعد exports الحالية:
+
+```ts
+export * from './useRevealSuperAnimation';
+```
+
+---
+
+# 3. الملف كاملًا بعد التعديل
+
+## `src/components/Navigation.tsx`
+
+```tsx
+import { useEffect, useRef, useState } from 'react';
+import { animateOnCompositor, prefersReducedMotion, safeCancelAnimation, supportsWAAPI } from '../superanimation';
+
+interface NavigationProps {
+  currentPage: string;
+  onNavigate: (page: string, data?: any) => void;
+}
+
+export function Navigation({ currentPage, onNavigate }: NavigationProps) {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileMenuRendered, setIsMobileMenuRendered] = useState(false);
+
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileMenuAnimationRef = useRef<Animation | null>(null);
+
+  const handleNavigate = (page: string, data?: any) => {
+    onNavigate(page, data);
+    setIsMobileMenuOpen(false);
+  };
+
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      setIsMobileMenuRendered(true);
+    }
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
+    const menu = mobileMenuRef.current;
+
+    if (!menu || !isMobileMenuRendered) return undefined;
+
+    safeCancelAnimation(mobileMenuAnimationRef.current);
+
+    if (!supportsWAAPI() || prefersReducedMotion()) {
+      if (!isMobileMenuOpen) {
+        setIsMobileMenuRendered(false);
+      }
+
+      return undefined;
+    }
+
+    const handle = animateOnCompositor(
+      menu,
+      isMobileMenuOpen
+        ? [
+            { opacity: '0', transform: 'translate3d(0, -8px, 0)' },
+            { opacity: '1', transform: 'translate3d(0, 0, 0)' },
+          ]
+        : [
+            { opacity: '1', transform: 'translate3d(0, 0, 0)' },
+            { opacity: '0', transform: 'translate3d(0, -8px, 0)' },
+          ],
+      {
+        duration: isMobileMenuOpen ? 220 : 160,
+        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        fill: 'forwards',
+        willChange: 'opacity, transform',
+      },
+    );
+
+    mobileMenuAnimationRef.current = handle.animation;
+
+    if (!isMobileMenuOpen) {
+      const finishHandler = () => {
+        setIsMobileMenuRendered(false);
+        mobileMenuAnimationRef.current = null;
+      };
+
+      handle.animation?.addEventListener('finish', finishHandler, { once: true });
+
+      return () => {
+        handle.animation?.removeEventListener('finish', finishHandler);
+      };
+    }
+
+    return () => {
+      handle.cancel();
+    };
+  }, [isMobileMenuOpen, isMobileMenuRendered]);
+
+  return (
+    <>
+      <nav
+        data-sa-promote
+        data-sa-will-change="transform, opacity"
+        className="fixed top-0 left-0 w-full h-[64px] md:h-[72px] px-6 md:px-12 flex items-center justify-between border-b border-white/5 bg-void-black/80 backdrop-blur-md z-50"
+      >
+        <div
+          data-sa-promote
+          data-sa-will-change="transform"
+          className="flex items-center gap-1 cursor-pointer"
+          onClick={() => handleNavigate('home')}
+        >
+          <span className="text-2xl font-bold tracking-tighter lowercase">
+            nullix<span className="text-ember">.</span>
+          </span>
+        </div>
+
+        {/* Desktop Navigation */}
+        <div className="hidden md:flex items-center gap-10">
+          <div className="flex gap-8 text-[11px] font-mono tracking-widest uppercase">
+            {['home', 'work', 'approach'].map((page) => (
+              <button
+                key={page}
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                onClick={() => handleNavigate(page)}
+                className={`transition-all duration-300 ${
+                  currentPage === page
+                    ? 'text-ember'
+                    : 'text-text-muted opacity-40 hover:opacity-100 hover:text-text-main'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+          </div>
+
+          <button
+            data-sa-promote
+            data-sa-will-change="opacity, transform"
+            className="px-5 py-2 rounded-full border border-ember/40 text-[11px] uppercase tracking-widest font-bold bg-void-black hover:bg-ember hover:text-void-black transition-all"
+            onClick={() => handleNavigate('home', { scrollToId: 'contact-form-section' })}
+          >
+            Start with us
+          </button>
+        </div>
+
+        {/* Mobile Navigation Toggle */}
+        <button
+          data-sa-promote
+          data-sa-will-change="opacity, transform"
+          className="md:hidden flex items-center justify-center p-2 text-text-main hover:text-ember transition-colors"
+          onClick={() => setIsMobileMenuOpen((value) => !value)}
+          aria-expanded={isMobileMenuOpen}
+          aria-label="Toggle mobile navigation"
+        >
+          {isMobileMenuOpen ? (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          ) : (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          )}
+        </button>
+      </nav>
+
+      {/* Mobile Menu Dropdown */}
+      {isMobileMenuRendered && (
+        <div
+          ref={mobileMenuRef}
+          data-sa-promote
+          data-sa-will-change="opacity, transform"
+          aria-hidden={!isMobileMenuOpen}
+          className="md:hidden fixed top-[64px] left-0 w-full bg-void-black/95 backdrop-blur-xl border-b border-white/5 z-40 p-6 flex flex-col gap-6"
+        >
+          <div className="flex flex-col gap-4 text-sm font-mono tracking-widest uppercase items-center">
+            {['home', 'work', 'approach'].map((page) => (
+              <button
+                key={page}
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                onClick={() => handleNavigate(page)}
+                className={`py-2 transition-all duration-300 w-full text-center ${
+                  currentPage === page
+                    ? 'text-ember'
+                    : 'text-text-muted hover:text-text-main'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+          </div>
+
+          <button
+            data-sa-promote
+            data-sa-will-change="opacity, transform"
+            className="w-full px-5 py-3 rounded-xl border border-ember/40 text-[11px] uppercase tracking-widest font-bold bg-ember text-void-black hover:bg-ember-deep transition-all"
+            onClick={() => handleNavigate('home', { scrollToId: 'contact-form-section' })}
+          >
+            Start with us
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+---
+
+## `src/components/Footer.tsx`
+
+```tsx
+import { useRef } from 'react';
+import { useRevealSuperAnimation } from '../superanimation';
+
+export function Footer() {
+  const footerRef = useRef<HTMLElement | null>(null);
+
+  useRevealSuperAnimation(footerRef, []);
+
+  return (
+    <footer
+      ref={footerRef}
+      data-sa-promote
+      data-sa-will-change="opacity, transform"
+      className="relative w-full border-t border-white/5 bg-void-black/80 backdrop-blur-sm z-50 py-6 px-6 md:px-12 text-[10px] font-mono tracking-widest text-[#6F6A63] uppercase"
+    >
+      <div className="w-full max-w-7xl mx-auto relative z-10 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="10"
+          data-sa-reveal-delay="0"
+          className="flex flex-col md:flex-row gap-4 md:gap-8 text-center md:text-left"
+        >
+          <span className="text-text-main">nullix.</span>
+        </div>
+
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="10"
+          data-sa-reveal-delay="70"
+          className="flex flex-col md:flex-row gap-4 md:gap-6 text-center md:text-right items-center"
+        >
+          <span className="text-ember/60">© 2026 NULLIXFORGE.COM</span>
+        </div>
+      </div>
+    </footer>
+  );
+}
+```
+
+---
+
+## `src/pages/Home.tsx`
+
+```tsx
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import TileEntityForge from '../components/TileEntityForge';
+import { prefersReducedMotion, useRevealSuperAnimation } from '../superanimation';
+
+interface HomeProps {
+  initialService?: string;
+  shouldScrollToForm?: boolean;
+}
+
+const proofProjects = [
+  {
+    title: 'CareGrid Clinic OS',
+    cat: 'Healthcare Operating Systems',
+    result: 'A clinic chain became one silent operating layer.',
+    tags: ['Healthcare OS', 'Patient Timeline', 'Audit Spine', 'Queue Intelligence'],
+    num: '01',
+  },
+  {
+    title: 'LedgerAxis Commerce Core',
+    cat: 'Commerce Operating Systems',
+    result: 'Fragmented sales, stock, invoices, and payments became one accountable commerce layer.',
+    tags: ['Commerce Core', 'Inventory Flow', 'Payment Ledger', 'Operational Audit'],
+    num: '02',
+  },
+  {
+    title: 'NerveOps AI Control Plane',
+    cat: 'AI Control Systems',
+    result: 'Scattered operational signals became structured decisions.',
+    tags: ['AI Layer', 'Signal Intelligence', 'Decision Console', 'Anomaly Detection'],
+    num: '03',
+  },
+];
+
+export function Home({ initialService, shouldScrollToForm }: HomeProps) {
+  const homeRef = useRef<HTMLDivElement | null>(null);
+
+  useRevealSuperAnimation(homeRef, [initialService, shouldScrollToForm]);
+
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    architecture: initialService || 'Web System',
+    message: '',
+  });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSent, setIsSent] = useState(false);
+
+  useEffect(() => {
+    if (initialService) {
+      setFormData((prev) => ({ ...prev, architecture: initialService }));
+    }
+  }, [initialService]);
+
+  useEffect(() => {
+    if (!shouldScrollToForm) return;
+
+    const formEl = document.getElementById('contact-form-section');
+
+    if (!formEl) return;
+
+    requestAnimationFrame(() => {
+      formEl.scrollIntoView({
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        block: 'start',
+      });
+    });
+  }, [shouldScrollToForm]);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.name || !formData.email || !formData.message) return;
+
+    setIsSubmitting(true);
+
+    window.setTimeout(() => {
+      setIsSubmitting(false);
+      setIsSent(true);
+
+      const subject = encodeURIComponent(`System Inquiry from ${formData.name}`);
+      const body = encodeURIComponent(
+        `Identifier: ${formData.name}\nComms: ${formData.email}\nArchitecture: ${formData.architecture}\n\nSignal:\n${formData.message}`,
+      );
+
+      window.open(`mailto:contact@nullixforge.com?subject=${subject}&body=${body}`, '_top');
+
+      window.setTimeout(() => {
+        setIsSent(false);
+        setFormData({
+          name: '',
+          email: '',
+          architecture: 'Web System',
+          message: '',
+        });
+      }, 3000);
+    }, 800);
+  };
+
+  return (
+    <div
+      ref={homeRef}
+      className="relative pt-24 pb-12 w-full max-w-7xl mx-auto px-6 md:px-12 z-10"
+      data-scene="home-void"
+      data-sa-page-shell
+    >
+      {/* 1. HERO SECTION */}
+      <section
+        data-sa-promote
+        data-sa-will-change="opacity, transform"
+        className="min-h-[92vh] flex flex-col md:flex-row items-center pt-12 md:pt-0 mb-32 relative"
+      >
+        <div className="absolute top-1/2 left-2/3 -translate-y-1/2 w-[500px] h-[500px] opacity-10 blur-[100px] bg-molten-gold rounded-full pointer-events-none" />
+        <div className="absolute -bottom-48 -left-48 w-96 h-96 opacity-20 blur-[120px] bg-ember rounded-full pointer-events-none" />
+
+        <div className="md:w-7/12 relative z-10 pr-0 md:pr-12">
+          <h1
+            data-sa-reveal
+            data-sa-reveal-y="22"
+            data-sa-reveal-delay="0"
+            data-sa-reveal-duration="720"
+            className="text-[64px] font-bold leading-[64px] tracking-[-0.05em] mb-8 text-text-main font-sans"
+          >
+            From nothing, we forge what feels natural.
+          </h1>
+
+          <p
+            data-sa-reveal
+            data-sa-reveal-y="18"
+            data-sa-reveal-delay="90"
+            data-sa-reveal-duration="760"
+            className="max-w-[480px] text-text-muted leading-relaxed text-sm mb-10"
+          >
+            Every system we build begins at zero — no templates, no borrowed complexity, no noise. We engineer Web platforms, Applications, and AI solutions from the ground up, shaped entirely around what your business needs to run.
+            <br />
+            <br />
+            That's our starting point. Below, you'll see how we think, what we've built, and what becomes possible.
+          </p>
+        </div>
+
+        {/* The Forge Core Visual - Anchored Foundry Core */}
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="16"
+          data-sa-reveal-delay="160"
+          data-sa-reveal-duration="820"
+          className="md:w-5/12 w-full mt-16 md:mt-0 relative flex items-center justify-center"
+        >
+          <TileEntityForge />
+        </div>
+      </section>
+
+      {/* 2. QUICK PROOF SECTION */}
+      <section className="mb-40" data-sa-promote>
+        <div className="mb-16">
+          <h2
+            data-sa-reveal
+            data-sa-reveal-y="18"
+            data-sa-reveal-delay="0"
+            className="text-3xl md:text-4xl font-heading font-medium mb-4"
+          >
+            Proof, before detail.
+          </h2>
+
+          <p
+            data-sa-reveal
+            data-sa-reveal-y="14"
+            data-sa-reveal-delay="70"
+            className="text-text-muted text-lg"
+          >
+            Three selected builds. Enough to show the system. Not enough to slow the signal.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6" data-sa-stagger-list>
+          {proofProjects.map((project, i) => (
+            <div
+              key={project.num}
+              data-sa-reveal
+              data-sa-reveal-y="22"
+              data-sa-reveal-delay={String(i * 90)}
+              data-sa-reveal-duration="760"
+              className="group p-8 rounded-[24px] bg-[linear-gradient(180deg,rgba(18,20,25,0.96),rgba(8,9,11,0.98))] border border-white/10 hover:border-ember/30 transition-all cursor-pointer shadow-[0_28px_80px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.04)] relative overflow-hidden"
+            >
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-molten-gold/[0.22] group-hover:bg-ember/[0.48] transition-colors duration-500" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div className="text-[10px] font-mono text-[#A9A39A] uppercase tracking-[0.2em]">
+                  {project.num} // {project.cat}
+                </div>
+
+                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-ember transition-colors" />
+              </div>
+
+              <h3 className="text-xl font-bold mb-4">{project.title}</h3>
+
+              <p className="text-[#A9A39A] text-[13px] leading-relaxed mb-8">
+                {project.result}
+              </p>
+
+              <div className="flex flex-wrap gap-2 mt-auto">
+                {project.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="text-[9px] font-mono uppercase bg-[#030304]/80 border border-white/5 px-2.5 py-1.5 rounded text-[#A9A39A]"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 3. PITCH SECTION */}
+      <section className="mb-40 relative" data-sa-promote>
+        <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-3/4 h-20 bg-ember/10 blur-2xl pointer-events-none" />
+
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="20"
+          data-sa-reveal-duration="800"
+          className="rounded-[32px] p-8 md:p-16 relative flex flex-col md:flex-row gap-12 border border-white/[0.12] bg-[linear-gradient(135deg,rgba(18,19,22,0.98),rgba(7,8,10,1))] shadow-[0_40px_100px_rgba(0,0,0,0.6)]"
+        >
+          <div className="absolute left-0 top-1/4 bottom-1/4 w-[2px] bg-ember/60" />
+
+          <div className="md:w-1/4" />
+
+          <div className="md:w-3/4">
+            <h2 className="text-xl md:text-2xl leading-relaxed text-text-main font-bold tracking-tight">
+              Everything we forge is built for one purpose — yours. A system engineered from zero, designed to run, to grow, and to hold your audience exactly where they should be.
+              <br />
+              <br />
+              <span className="text-[#A9A39A]">
+                You may know exactly what you need. You may not yet. Either way — we do. That's what the forge is for.
+              </span>
+            </h2>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. CONTACT SECTION */}
+      <section id="contact-form-section" className="mb-20" data-sa-promote>
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="18"
+          data-sa-reveal-duration="820"
+          className="flex flex-col md:flex-row gap-12 max-w-5xl mx-auto rounded-[32px] p-8 md:p-12 bg-[#0A0B0E]/98 border border-white/[0.12] shadow-[0_40px_120px_rgba(0,0,0,0.58)]"
+        >
+          <div className="md:w-[40%] flex flex-col">
+            <h2 className="text-3xl md:text-4xl font-bold tracking-[-0.05em] mb-4">
+              Start from zero.
+            </h2>
+
+            <p className="text-sm text-[#A9A39A] mb-12">
+              Tell us what needs to exist. We'll shape the system around it.
+            </p>
+
+            <div className="mt-auto bg-[#030304]/80 border border-white/5 p-6 rounded-2xl flex flex-col gap-6 font-mono text-[10px] tracking-widest">
+              <div className="flex flex-col">
+                <span className="text-text-faint uppercase mb-2">Direct Channel</span>
+
+                <a
+                  href="mailto:contact@nullixforge.com"
+                  className="text-text-main hover:text-ember transition-colors"
+                >
+                  contact@nullixforge.com
+                </a>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-text-faint uppercase mb-2">System Node</span>
+                <span className="text-text-main">nullixforge.com</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="md:w-[60%] border-t md:border-t-0 md:border-l border-white/5 pt-8 md:pt-0 md:pl-12 relative overflow-hidden">
+            {isSent ? (
+              <div
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                className="absolute inset-0 flex flex-col items-center justify-center bg-[#0A0B0E]/98 z-20"
+                style={{ animation: 'fade-in 0.4s ease-out' }}
+              >
+                <div className="w-12 h-12 rounded-full border border-ember/30 bg-ember/10 flex items-center justify-center text-ember mb-4">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+
+                <h3 className="text-xl font-bold mb-2">Signal Transmitted</h3>
+
+                <p className="text-text-muted text-sm px-8 text-center">
+                  Your message has been encoded and sent. We'll open a channel with you shortly.
+                </p>
+              </div>
+            ) : null}
+
+            <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+              <div className="flex flex-col gap-2 relative">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Name / Identifier
+                </label>
+
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main transition-colors text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Email / Comms
+                </label>
+
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main transition-colors text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Project Architecture
+                </label>
+
+                <select
+                  value={formData.architecture}
+                  onChange={(e) => setFormData({ ...formData, architecture: e.target.value })}
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main appearance-none transition-colors text-sm disabled:opacity-50"
+                >
+                  <option>Web System</option>
+                  <option>Application</option>
+                  <option>AI Solution</option>
+                  <option>Not sure yet</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-2 mb-2">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Message / Signal
+                </label>
+
+                <textarea
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  required
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main min-h-[120px] resize-none transition-colors text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                className="relative overflow-hidden bg-text-main border border-text-main rounded-xl px-8 py-3.5 text-[11px] uppercase tracking-widest font-bold text-black hover:bg-ember hover:border-ember transition-all duration-300 w-full disabled:opacity-80 disabled:cursor-not-allowed group"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-3 w-3 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Processing
+                  </span>
+                ) : (
+                  'Send'
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+```
+
+---
+
+# الفرق العملي بين القديم والجديد
+
+## `Navigation.tsx`
+
+القديم:
+
+```txt
+mobile dropdown يظهر بشرط React فقط
+animation inline: fade-in 0.2s
+لا يوجد exit animation
+لا يوجد WAAPI
+لا يوجد cleanup
+```
+
+الجديد:
+
+```txt
+mobile dropdown له rendered state مستقل
+open/close عبر WAAPI
+الحركة opacity + transform فقط
+exit animation قبل unmount
+cleanup عند تغير الحالة أو unmount
+CSS/React لا يحركان position أو layout
+```
+
+النتيجة: فتح/إغلاق الموبايل smoother، وأقل اعتمادًا على Main Thread أثناء الحركة.
+
+---
+
+## `Footer.tsx`
+
+القديم:
+
+```txt
+footer static فقط
+لا يوجد reveal/stagger
+```
+
+الجديد:
+
+```txt
+footer يستخدم data-sa-reveal
+الدخول يتم عبر useRevealSuperAnimation
+الحركة transform/opacity فقط
+```
+
+النتيجة: دخول footer منظم بدون تغيير شكله النهائي.
+
+---
+
+## `Home.tsx`
+
+القديم:
+
+```txt
+كل الأقسام تظهر مباشرة
+لا يوجد reveal orchestration
+scrollIntoView smooth مباشر
+cards تعتمد فقط على hover/transition
+```
+
+الجديد:
+
+```txt
+hero/title/text/forge/cards/pitch/contact تدخل عبر WAAPI reveal
+stagger محسوب بالـ data-sa-reveal-delay
+IntersectionObserver ينسق فقط
+WAAPI ينفذ transform/opacity
+PhysicsFactory يولد linear() مضغوط للـ easing
+reduced-motion محترم
+```
+
+النتيجة: الصفحة أصبحت أقرب لمعمارية SuperAnimation: الـ logic يقرر متى تظهر العناصر، والـ compositor ينفذ الحركة. هذا يضيف reveal/stagger بدون تغيير layout أو final visual design.
+
+---
+
+# هل تغير شكل الموقع؟
+
+لا يوجد تغيير مقصود في:
+
+```txt
+النصوص
+الألوان
+المقاسات
+الترتيب
+الـ spacing
+الـ grid
+الـ shadows
+الـ borders
+الـ typography
+محتوى الفورم
+محتوى الكروت
+```
+
+التغيير الوحيد هو طريقة دخول العناصر:
+
+```txt
+من ظهور مباشر / CSS fade
+إلى WAAPI reveal عبر opacity + transform
+```
+
+---
+
+# فرق الأداء المتوقع
+
+| الملف        | قبل                                   | بعد                                             |
+| ------------ | ------------------------------------- | ----------------------------------------------- |
+| `Navigation` | React mount/unmount + CSS fade inline | WAAPI open/close + cleanup                      |
+| `Footer`     | static                                | reveal on compositor                            |
+| `Home`       | لا يوجد orchestration                 | IntersectionObserver trigger + WAAPI execution  |
+| Cards        | تظهر مباشرة                           | staggered reveal بدون React loop                |
+| Main Thread  | أقل تنظيمًا                           | يستخدم trigger فقط ثم يترك الحركة               |
+| GPU path     | غير مركزي                             | `transform/opacity` موجه عبر `CompositorBridge` |
+
+الأهم: لا يوجد `requestAnimationFrame` جديد في هذه المرحلة، ولا يوجد `getBoundingClientRect`, ولا يوجد scroll listener. الـ scroll/reveal يستخدم `IntersectionObserver` كـ trigger فقط، ثم الحركة نفسها تنتقل إلى WAAPI.
+
+"
+
+
+لقد تم تنفيذ هذه المرحله بدقه 100% : "تم. هذه المرحلة لا تحتاج ملف engine جديد إضافي إذا كنت طبّقت المرحلة السابقة التي أضفنا فيها:
+
+```txt
+src/superanimation/useRevealSuperAnimation.ts
+```
+
+لكن لو لم تضفه بعد، لازم تضيفه وتضيف هذا السطر في آخر:
+
+```txt
+src/superanimation/index.ts
+```
+
+```ts
+export * from './useRevealSuperAnimation';
+```
+
+هذه المرحلة تطبق SuperAnimation على `Work.tsx` و`Approach.tsx` كـ **section reveals / card stagger / timeline stagger** بدون تغيير الشكل، لأن التنفيذ بقي محصورًا في `opacity` و`transform`، بينما `IntersectionObserver` يعمل فقط كـ trigger خفيف. هذا يطابق معمارية الدمج: التنسيق/التحفيز على الـ Main Thread، والتنفيذ على Silent Compositor عبر WAAPI. 
+كما أنها تعتمد على طبقة `src/superanimation` التي تم تنفيذها سابقًا: `CompositorBridge`, `PhysicsFactory`, `PhysicsCompressor`, `featureSupport`, و`useRevealSuperAnimation`. 
+
+---
+
+# 1. `src/pages/Work.tsx`
+
+استبدل الملف كاملًا بهذا:
+
+```tsx
+import { useRef } from 'react';
+import { useRevealSuperAnimation } from '../superanimation';
+
+interface WorkProps {
+  onNavigate?: (page: string, data?: any) => void;
+}
+
+const caseStudies = [
+  {
+    name: 'CareGrid Clinic OS',
+    type: 'Healthcare Operating Systems',
+    status: 'Selected Build / Primary Case Study',
+    problem: 'Clinic operations were scattered across bookings, patients, doctors, payments, queues, records, and staff decisions.',
+    process: 'We forged one operational layer around patient identity, appointment flow, role-based access, audit trails, timeline projections, billing, queue movement, and clinical context.',
+    result: 'A clinic chain can run through one calm system — where every action has context, every patient has history, and every staff role sees only what it needs.',
+    tags: ['Healthcare OS', 'Patient Timeline', 'Audit Spine', 'Queue Intelligence'],
+    actionText: 'View case study',
+  },
+  {
+    name: 'LedgerAxis Commerce Core',
+    type: 'Commerce Operating Systems',
+    status: 'System Concept / Internal Build Direction',
+    problem: 'Sales were moving, but the business had no single source of truth. Orders, stock, invoices, payments, customer state, and staff actions lived in separate operational fragments.',
+    process: 'We shaped a commerce core around inventory movement, invoice lineage, payment states, customer history, order flow, permissions, and audit-backed operational records.',
+    result: 'A business layer where every order is traceable, every payment is explainable, and every stock movement becomes visible without adding noise.',
+    tags: ['Commerce Core', 'Inventory Flow', 'Payment Ledger', 'Operational Audit'],
+    actionText: 'View system brief',
+  },
+  {
+    name: 'NerveOps AI Control Plane',
+    type: 'AI Control Systems',
+    status: 'Internal R&D / AI System Concept',
+    problem: 'The business had data everywhere, but no operational intelligence. Reports existed, signals existed, but decisions still depended on slow human scanning.',
+    process: 'We designed an AI control plane that reads operational events, classifies signals, detects anomalies, summarizes context, and turns scattered data into decision-ready insight.',
+    result: 'Teams stop searching for meaning. The system surfaces what matters, explains why, and gives operators the next clear action.',
+    tags: ['AI Layer', 'Signal Intelligence', 'Decision Console', 'Anomaly Detection'],
+    actionText: 'View system brief',
+  },
+  {
+    name: 'AccessForge Identity Layer',
+    type: 'Access & Identity Systems',
+    status: 'Architecture Module / Productized Concept',
+    problem: 'Critical systems break when patients, staff, admins, devices, sessions, and permissions share the same mental model. Access becomes unclear, and unclear access becomes risk.',
+    process: 'We shaped an identity layer around role separation, device sessions, staff authentication, access issuing, eligibility checks, audit context, and controlled entry points.',
+    result: 'Every user enters through the right door, with the right scope, under the right context — while every sensitive movement remains traceable.',
+    tags: ['Identity Layer', 'Access Graph', 'Sessions', 'Audit Control'],
+    actionText: 'View architecture brief',
+  },
+  {
+    name: 'QueueSignal Flow Engine',
+    type: 'Flow & Queue Systems',
+    status: 'Productized Module / System Concept',
+    problem: 'Waiting rooms, appointment slots, cancellations, check-ins, walk-ins, and service timing move faster than teams can coordinate manually.',
+    process: 'We designed a flow engine around slot logic, queue tickets, waiting displays, status movement, notifications, and service timing.',
+    result: 'Movement becomes visible. Patients know where they are, staff know what comes next, and the system absorbs the operational noise.',
+    tags: ['Queue Engine', 'Scheduling', 'Waiting Flow', 'Realtime Operations'],
+    actionText: 'View system brief',
+  },
+  {
+    name: 'TraceVault Audit Ledger',
+    type: 'Audit Infrastructure',
+    status: 'Infrastructure Concept / Enterprise System Layer',
+    problem: 'Most systems know what changed. Few systems know why it changed, who caused it, what context allowed it, and how the system should recover if something fails.',
+    process: 'We forged an audit spine around action context, fingerprints, idempotency decisions, failure classification, retry logic, outbox flow, and timeline reconstruction.',
+    result: 'The system becomes explainable. Every action leaves a clean trail, every failure has a class, and recovery stops depending on memory.',
+    tags: ['Audit Spine', 'Idempotency', 'Traceability', 'Recovery Logic'],
+    actionText: 'View architecture brief',
+  },
+];
+
+const services = [
+  {
+    title: 'Web Systems',
+    desc: 'High-performance web platforms built around clarity, conversion, and operational stability.',
+    cta: 'Forge a web system',
+    serviceToSet: 'Web System',
+    diagram: (
+      <div className="flex gap-2 items-center opacity-40 mb-8 h-12">
+        <div className="w-12 border-t border-dashed border-ember"></div>
+        <div className="w-2 h-2 rounded bg-ember"></div>
+        <div className="w-16 border-t border-ember"></div>
+        <div className="w-2 h-2 rounded bg-molten-gold"></div>
+      </div>
+    ),
+  },
+  {
+    title: 'Applications',
+    desc: 'Internal and external applications shaped around real workflows, not decorative screens.',
+    cta: 'Forge an application',
+    serviceToSet: 'Application',
+    diagram: (
+      <div className="flex flex-col gap-2 opacity-40 mb-8 h-12 justify-center">
+        <div className="flex gap-2 items-center">
+          <div className="w-2 h-2 rounded-full border border-molten-gold"></div>
+          <div className="w-12 border-t border-molten-gold/50"></div>
+        </div>
+        <div className="flex gap-2 items-center ml-4">
+          <div className="w-1 h-4 border-l border-molten-gold/50"></div>
+          <div className="w-8 border-t border-molten-gold/50"></div>
+          <div className="w-2 h-2 bg-molten-gold rounded-full shadow-[0_0_8px_rgba(223,165,91,0.5)]"></div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    title: 'AI Solutions',
+    desc: 'AI layers that reduce noise, structure decisions, and automate what should no longer depend on manual effort.',
+    cta: 'Forge an AI layer',
+    serviceToSet: 'AI Solution',
+    diagram: (
+      <div className="relative opacity-40 mb-8 h-12 flex items-center">
+        <div className="absolute w-full border-t border-white/20"></div>
+        <div className="absolute left-1/4 w-3 h-3 rotate-45 bg-ember blur-[2px]"></div>
+        <div className="absolute left-1/2 w-2 h-2 rotate-45 border border-ember"></div>
+        <div className="absolute right-1/4 w-3 h-3 rotate-45 bg-ember blur-[2px]"></div>
+      </div>
+    ),
+  },
+];
+
+export function Work({ onNavigate }: WorkProps) {
+  const workRef = useRef<HTMLDivElement | null>(null);
+
+  useRevealSuperAnimation(workRef, []);
+
+  return (
+    <div
+      ref={workRef}
+      className="relative pt-32 pb-12 w-full max-w-7xl mx-auto px-6 md:px-12 z-10"
+      data-scene="work-systems"
+      data-sa-page-shell
+    >
+      {/* 1. WORK HERO */}
+      <section
+        data-sa-promote
+        data-sa-will-change="opacity, transform"
+        className="mb-24 relative"
+      >
+        <div
+          data-layer="forge-glow"
+          className="absolute top-10 left-10 w-[600px] h-[300px] bg-[radial-gradient(ellipse,rgba(255,106,42,0.1),transparent_70%)] pointer-events-none"
+        />
+
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="12"
+          data-sa-reveal-delay="0"
+          className="mb-6 inline-flex items-center gap-2"
+        >
+          <div className="w-1 h-1 bg-ember"></div>
+          <span className="font-mono text-[11px] text-text-muted uppercase tracking-[0.2em]">
+            work / proof of systems
+          </span>
+        </div>
+
+        <h1
+          data-sa-reveal
+          data-sa-reveal-y="22"
+          data-sa-reveal-delay="70"
+          data-sa-reveal-duration="760"
+          className="text-[clamp(3.5rem,7vw,5.5rem)] font-bold leading-[0.88] tracking-[-0.05em] mb-8 text-text-main"
+        >
+          Systems forged from zero.
+        </h1>
+
+        <p
+          data-sa-reveal
+          data-sa-reveal-y="16"
+          data-sa-reveal-delay="140"
+          data-sa-reveal-duration="760"
+          className="text-text-muted text-sm max-w-2xl mb-12"
+        >
+          Selected builds across Web platforms, Applications, and AI solutions — structured as problems, processes, and results.
+        </p>
+
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="12"
+          data-sa-reveal-delay="210"
+          data-sa-reveal-duration="720"
+          className="flex gap-8 font-mono text-[11px] uppercase tracking-widest text-[#A9A39A]"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-ember font-bold">01</span>
+            <span>Web Systems</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-ember font-bold">02</span>
+            <span>Applications</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-ember font-bold">03</span>
+            <span>AI Solutions</span>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. FILTERS */}
+      <section
+        data-sa-reveal
+        data-sa-reveal-y="14"
+        data-sa-reveal-delay="0"
+        data-sa-reveal-duration="720"
+        className="mb-12 flex flex-wrap gap-4 border-b border-white/5 pb-8"
+      >
+        <button
+          data-sa-promote
+          data-sa-will-change="opacity, transform"
+          className="px-[22px] py-[10px] rounded-full border border-ember text-[#030304] bg-ember text-[11px] uppercase tracking-widest font-bold shadow-[0_0_15px_rgba(255,106,42,0.2)] transition-colors"
+        >
+          All
+        </button>
+        <button data-sa-promote data-sa-will-change="opacity, transform" className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">
+          Operating Systems
+        </button>
+        <button data-sa-promote data-sa-will-change="opacity, transform" className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">
+          AI Control
+        </button>
+        <button data-sa-promote data-sa-will-change="opacity, transform" className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">
+          Infrastructure
+        </button>
+        <button data-sa-promote data-sa-will-change="opacity, transform" className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">
+          Product Concepts
+        </button>
+        <button data-sa-promote data-sa-will-change="opacity, transform" className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">
+          Selected Builds
+        </button>
+      </section>
+
+      {/* 3. CASE STUDY GRID */}
+      <section
+        data-sa-promote
+        className="mb-40 bg-[#050608]/70 rounded-[36px] p-6 md:p-12 relative z-10"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8" data-sa-stagger-list>
+          {caseStudies.map((study, i) => (
+            <div
+              key={study.name}
+              data-sa-reveal
+              data-sa-reveal-y="24"
+              data-sa-reveal-delay={String((i % 2) * 90)}
+              data-sa-reveal-duration="780"
+              className="group p-8 rounded-[24px] bg-[linear-gradient(180deg,rgba(17,19,24,0.97),rgba(7,8,10,0.99))] border border-white/[0.11] hover:border-ember/30 transition-all duration-300 flex flex-col shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+            >
+              <div className="flex justify-between items-start mb-6">
+                <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-[#A9A39A]">
+                  [ {study.type} ]
+                </span>
+                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-molten-gold transition-colors"></div>
+              </div>
+
+              <h3 className="text-2xl font-bold mb-8 text-text-main group-hover:text-white transition-colors">
+                {study.name}
+              </h3>
+
+              <div className="flex flex-col mb-12 flex-grow">
+                {study.status && (
+                  <div className="pb-6 border-b border-white/[0.07]">
+                    <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">
+                      Status
+                    </div>
+                    <p className="text-[#A9A39A] text-[13px] leading-relaxed">
+                      {study.status}
+                    </p>
+                  </div>
+                )}
+
+                <div className={`${study.status ? 'py-6' : 'pb-6'} border-b border-white/[0.07]`}>
+                  <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">
+                    Problem
+                  </div>
+                  <p className="text-[#A9A39A] text-[13px] leading-relaxed">
+                    {study.problem}
+                  </p>
+                </div>
+
+                <div className="py-6 border-b border-white/[0.07]">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">
+                    Process
+                  </div>
+                  <p className="text-[#A9A39A] text-[13px] leading-relaxed">
+                    {study.process}
+                  </p>
+                </div>
+
+                <div className="pt-6">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">
+                    Result
+                  </div>
+                  <p className="text-text-main text-[13px] font-medium leading-relaxed">
+                    {study.result}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-[#0A0B0E] -mx-8 -mb-8 p-6 md:px-8 flex flex-col md:flex-row md:items-center justify-between gap-4 mt-auto rounded-b-[24px] border-t border-white/5">
+                <div className="flex flex-wrap gap-2">
+                  {study.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#A9A39A]"
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+
+                <button
+                  data-sa-promote
+                  data-sa-will-change="opacity, transform"
+                  className="text-[10px] uppercase tracking-widest font-bold text-ember flex items-center gap-2 group/btn"
+                >
+                  {study.actionText || 'View case study'}
+                  <span className="transform group-hover/btn:translate-x-1 transition-transform">
+                    →
+                  </span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 4. SERVICES */}
+      <section className="mb-20" data-sa-promote>
+        <div className="mb-16 text-center md:text-left">
+          <h2
+            data-sa-reveal
+            data-sa-reveal-y="18"
+            data-sa-reveal-delay="0"
+            className="text-4xl font-heading font-medium mb-4"
+          >
+            What we forge.
+          </h2>
+          <p
+            data-sa-reveal
+            data-sa-reveal-y="14"
+            data-sa-reveal-delay="70"
+            className="text-text-muted text-lg"
+          >
+            Services are not packages. They are entry points into systems.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6" data-sa-stagger-list>
+          {services.map((srv, i) => (
+            <div
+              key={srv.title}
+              data-sa-reveal
+              data-sa-reveal-y="22"
+              data-sa-reveal-delay={String(i * 90)}
+              data-sa-reveal-duration="760"
+              className="group p-8 md:p-10 rounded-[28px] bg-[#0D0F13]/98 border border-white/[0.12] hover:border-ember/30 transition-all duration-300 relative flex flex-col shadow-[0_36px_110px_rgba(0,0,0,0.55)]"
+            >
+              <div className="absolute bottom-0 inset-x-8 h-[2px] bg-molten-gold/20"></div>
+
+              <div className="bg-[#08090B] border border-white/5 p-4 rounded-[16px] mb-8 flex items-center min-h-[64px]">
+                {srv.diagram}
+              </div>
+
+              <h3 className="text-xl font-bold mb-4 text-text-main group-hover:text-molten-gold transition-colors">
+                {srv.title}
+              </h3>
+
+              <p className="text-[#A9A39A] text-[13px] leading-relaxed mb-10 flex-grow">
+                {srv.desc}
+              </p>
+
+              <button
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                onClick={() => {
+                  if (onNavigate) {
+                    onNavigate('home', {
+                      service: srv.serviceToSet,
+                      scrollToId: 'contact-form-section',
+                    });
+                  }
+                }}
+                className="mt-auto px-6 py-3 border border-white/10 rounded-full text-[11px] uppercase tracking-widest font-bold hover:bg-ember hover:border-ember hover:text-[#030304] transition-all bg-[#030304] w-fit text-text-main"
+              >
+                {srv.cta}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+```
+
+---
+
+# 2. `src/pages/Approach.tsx`
+
+استبدل الملف كاملًا بهذا:
+
+```tsx
+import { useRef } from 'react';
+import { useRevealSuperAnimation } from '../superanimation';
+
+const thinkingItems = [
+  {
+    num: '01',
+    title: 'Zero before structure',
+    desc: 'Before building, we remove assumptions, noise, and borrowed patterns.',
+  },
+  {
+    num: '02',
+    title: 'Systems before screens',
+    desc: 'A screen is only useful when the system beneath it is clear.',
+  },
+  {
+    num: '03',
+    title: 'Calm over complexity',
+    desc: 'The user should feel control, not the weight of the machinery.',
+  },
+  {
+    num: '04',
+    title: 'Invisible power',
+    desc: 'The best systems are felt through stability, speed, and certainty — not through explanation.',
+  },
+];
+
+const forgeSteps = [
+  {
+    title: 'Null State',
+    desc: 'Understand what should be removed.',
+  },
+  {
+    title: 'System Map',
+    desc: 'Define what must exist.',
+  },
+  {
+    title: 'Forge Layer',
+    desc: 'Build the core flows and structure.',
+    active: true,
+  },
+  {
+    title: 'Interface Skin',
+    desc: 'Shape the experience around clarity.',
+  },
+  {
+    title: 'Living System',
+    desc: 'Prepare the product to run, grow, and evolve.',
+  },
+];
+
+const resultPrinciples = [
+  'No template thinking',
+  'No decorative complexity',
+  'No disconnected pages',
+  'No noise disguised as features',
+  'No interface without system logic',
+  'No motion without purpose',
+];
+
+const skills = [
+  'Product Architecture',
+  'Frontend Engineering',
+  'Backend Logic',
+  'Web Platforms',
+  'Applications',
+  'AI Workflows',
+  'Automation',
+  'UX Systems',
+  'Performance',
+  'Interface Design',
+  'System Mapping',
+  'Technical Direction',
+];
+
+export function Approach() {
+  const approachRef = useRef<HTMLDivElement | null>(null);
+
+  useRevealSuperAnimation(approachRef, []);
+
+  return (
+    <div
+      ref={approachRef}
+      className="relative pt-32 pb-12 w-full max-w-7xl mx-auto px-6 md:px-12 z-10"
+      data-scene="approach-logic"
+      data-sa-page-shell
+    >
+      {/* 1. APPROACH HERO */}
+      <section
+        data-sa-promote
+        data-sa-will-change="opacity, transform"
+        className="mb-32 flex flex-col md:flex-row min-h-[70vh] items-center relative"
+      >
+        <div className="md:w-3/5 pr-0 md:pr-16 z-10">
+          <div
+            data-sa-reveal
+            data-sa-reveal-y="12"
+            data-sa-reveal-delay="0"
+            className="mb-6 inline-flex items-center gap-2"
+          >
+            <div className="w-1 h-1 bg-molten-gold"></div>
+            <span className="font-mono text-[11px] text-text-muted uppercase tracking-[0.2em]">
+              approach / the thinking underneath
+            </span>
+          </div>
+
+          <h1
+            data-sa-reveal
+            data-sa-reveal-y="22"
+            data-sa-reveal-delay="70"
+            data-sa-reveal-duration="760"
+            className="text-[clamp(3rem,6vw,4.5rem)] font-bold tracking-[-0.05em] mb-8 leading-[0.9]"
+          >
+            The difference is not the interface.
+            <br />
+            <span className="text-text-muted">It is the thinking underneath.</span>
+          </h1>
+
+          <p
+            data-sa-reveal
+            data-sa-reveal-y="16"
+            data-sa-reveal-delay="140"
+            data-sa-reveal-duration="760"
+            className="text-text-muted text-sm max-w-xl leading-relaxed"
+          >
+            nullix begins where templates stop: at zero. We remove noise, define the system, then shape the interface around what must actually happen.
+          </p>
+        </div>
+
+        {/* Forge Route Field */}
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="16"
+          data-sa-reveal-delay="180"
+          data-sa-reveal-duration="820"
+          className="md:w-2/5 h-[400px] mt-16 md:mt-0 relative w-full flex items-center justify-center"
+          aria-label="Static forge route field showing nullixforge defining a precise path from current state to correct outcome"
+          role="img"
+        >
+          {/* Outer Chamber */}
+          <div
+            data-sa-promote
+            data-sa-will-change="opacity, transform"
+            className="relative w-full max-w-[360px] h-[360px] rounded-[32px] overflow-hidden flex items-center justify-center p-6"
+            style={{
+              background: 'linear-gradient(180deg, #0A0B0E 0%, #050607 100%)',
+              border: '1px solid rgba(244,240,232,0.10)',
+              boxShadow: '0 32px 90px rgba(0,0,0,0.56), inset 0 1px 0 rgba(255,255,255,0.045)',
+            }}
+          >
+            {/* Inner Field */}
+            <div
+              className="relative w-full h-full rounded-[20px] overflow-hidden"
+              style={{
+                background: 'linear-gradient(180deg, #090A0D 0%, #050607 100%)',
+                border: '1px solid rgba(244,240,232,0.075)',
+              }}
+            >
+              {/* Grid */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundImage: 'linear-gradient(rgba(244,240,232,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(244,240,232,0.035) 1px, transparent 1px)',
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '10px 10px',
+                }}
+              ></div>
+
+              {/* --- ROUTE PATH --- */}
+              <div
+                className="absolute top-[80px] left-[70px] h-[1px] w-[140px]"
+                style={{ background: 'rgba(244,240,232,0.11)' }}
+              ></div>
+
+              <div
+                className="absolute top-[80px] left-[210px] w-[1px] h-[100px]"
+                style={{ background: 'rgba(244,240,232,0.11)' }}
+              ></div>
+
+              <div
+                className="absolute top-[180px] left-[210px] h-[1px] w-[70px]"
+                style={{
+                  background: 'linear-gradient(90deg, rgba(244,240,232,0.10), rgba(223,165,91,0.18), rgba(255,106,42,0.20))',
+                }}
+              ></div>
+
+              <div
+                className="absolute top-[180px] left-[260px] h-[1px] w-[20px]"
+                style={{ background: 'rgba(223,165,91,0.22)' }}
+              ></div>
+
+              {/* --- OBJECTS --- */}
+              <div
+                className="absolute top-[75px] left-[60px] w-[11px] h-[11px] rounded-[3px] z-20"
+                style={{
+                  background: '#ff6a2a',
+                  border: '1px solid rgba(244,240,232,0.10)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                }}
+              ></div>
+
+              <div
+                className="absolute top-1/2 left-[40%] -translate-x-1/2 -translate-y-1/2 w-[50px] h-[50px] rounded-[10px] flex items-center justify-center z-30"
+                style={{
+                  background: 'linear-gradient(180deg, #070809 0%, #030405 100%)',
+                  border: '1px solid #dfa55b',
+                  boxShadow: '0 0 0 1px rgba(223,165,91,0.30), 0 0 22px rgba(223,165,91,0.30), inset 0 1px 0 rgba(255,255,255,0.045)',
+                }}
+              >
+                <div
+                  className="w-[8px] h-[8px] rounded-full"
+                  style={{
+                    background: '#dfa55b',
+                    boxShadow: '0 0 14px rgba(223,165,91,0.8)',
+                  }}
+                ></div>
+              </div>
+
+              <div
+                className="absolute top-[174px] left-[280px] w-[13px] h-[13px] rounded-[4px] flex items-center justify-center z-20"
+                style={{
+                  background: '#dfa55b',
+                  border: '1px solid rgba(223,165,91,0.4)',
+                  boxShadow: '0 0 18px rgba(223,165,91,0.6), 0 0 36px rgba(223,165,91,0.2)',
+                }}
+              >
+                <div
+                  className="w-[3px] h-[3px] rounded-full"
+                  style={{ background: '#dfa55b' }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. HOW WE THINK */}
+      <section className="mb-40" data-sa-promote>
+        <h2
+          data-sa-reveal
+          data-sa-reveal-y="18"
+          data-sa-reveal-delay="0"
+          className="text-[clamp(2rem,4vw,3rem)] font-bold tracking-[-0.05em] mb-12"
+        >
+          How we think.
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6" data-sa-stagger-list>
+          {thinkingItems.map((item, i) => (
+            <div
+              key={item.title}
+              data-sa-reveal
+              data-sa-reveal-y="22"
+              data-sa-reveal-delay={String(i * 80)}
+              data-sa-reveal-duration="740"
+              className="bg-[#0A0B0E]/95 border border-white/[0.12] p-8 rounded-[24px] relative group hover:border-white/20 transition-colors shadow-[0_20px_40px_rgba(0,0,0,0.4)]"
+            >
+              <div className="absolute top-4 right-4 w-2 h-2 border-t border-r border-white/20"></div>
+              <div className="absolute bottom-4 left-4 w-2 h-2 border-b border-l border-white/20"></div>
+
+              <div className="font-mono text-xs tracking-widest text-[#6F6A63] mb-12 border-b border-white/5 pb-4">
+                {item.num}
+              </div>
+
+              <h3 className="text-lg font-bold mb-4 text-text-main">
+                {item.title}
+              </h3>
+
+              <p className="text-[#A9A39A] text-[13px] leading-relaxed">
+                {item.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 3. HOW WE WORK (TIMELINE) */}
+      <section
+        data-sa-reveal
+        data-sa-reveal-y="20"
+        data-sa-reveal-duration="820"
+        className="mb-40 bg-[#060708] border border-white/5 rounded-[32px] p-8 md:p-12 relative overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.5)]"
+      >
+        <div className="absolute top-0 right-0 w-64 h-64 bg-ember/5 rounded-full blur-3xl pointer-events-none"></div>
+
+        <h2
+          data-sa-reveal
+          data-sa-reveal-y="14"
+          data-sa-reveal-delay="0"
+          className="text-[clamp(1.5rem,3vw,2.5rem)] font-bold tracking-[-0.05em] mb-16 relative z-10"
+        >
+          The forge process.
+        </h2>
+
+        {/* Horizontal Timeline (Desktop) / Vertical (Mobile) */}
+        <div className="relative z-10 w-full overflow-x-auto pb-8">
+          <div className="md:absolute top-8 left-0 right-0 h-[2px] bg-white/[0.08] hidden md:block z-0"></div>
+          <div className="absolute top-0 bottom-0 left-[27px] w-[2px] bg-white/[0.08] md:hidden z-0"></div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-12 md:gap-8 relative z-10 min-w-max md:min-w-0" data-sa-stagger-list>
+            {forgeSteps.map((step, i) => (
+              <div
+                key={step.title}
+                data-sa-reveal
+                data-sa-reveal-y="18"
+                data-sa-reveal-delay={String(i * 80)}
+                data-sa-reveal-duration="760"
+                className="flex md:flex-col gap-8 md:gap-0 relative"
+              >
+                <div className={`shrink-0 w-14 h-14 md:mb-10 rounded-xl border flex items-center justify-center bg-[#0A0B0E] relative z-10 ${step.active ? 'border-ember shadow-[0_0_20px_rgba(255,106,42,0.15)]' : 'border-white/10'}`}>
+                  <div className={`w-3 h-3 rounded-sm ${step.active ? 'bg-ember' : 'bg-white/10'}`}></div>
+                </div>
+
+                <div className="pt-2 md:pt-0">
+                  <div className={`font-mono text-[9px] uppercase tracking-[0.2em] mb-3 ${step.active ? 'text-ember' : 'text-[#6F6A63]'}`}>
+                    [ Phase {i + 1} ]
+                  </div>
+
+                  <h4 className="text-base font-bold mb-2">
+                    {step.title}
+                  </h4>
+
+                  <p className="text-[13px] text-[#A9A39A] leading-relaxed max-w-[200px]">
+                    {step.desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 4. WHY THE RESULT FEELS DIFFERENT */}
+      <section className="mb-40" data-sa-promote>
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="20"
+          data-sa-reveal-duration="820"
+          className="flex flex-col md:flex-row gap-16 rounded-3xl bg-white/5 border border-white/10 p-8 md:p-16"
+        >
+          <div className="md:w-1/2">
+            <h2 className="text-[clamp(2rem,4vw,3rem)] font-bold tracking-[-0.05em] mb-6">
+              Less visible complexity.
+              <br />
+              <span className="text-text-muted">More felt control.</span>
+            </h2>
+
+            <p className="text-text-muted text-sm leading-relaxed">
+              The interface is only the surface. The real work is deciding what should exist, what should disappear, and what must run silently beneath the user's attention.
+            </p>
+          </div>
+
+          <div className="md:w-1/2">
+            <div className="flex flex-col gap-4 font-mono text-[11px] tracking-[0.2em] uppercase" data-sa-stagger-list>
+              {resultPrinciples.map((item, i) => (
+                <div
+                  key={item}
+                  data-sa-reveal
+                  data-sa-reveal-y="10"
+                  data-sa-reveal-delay={String(i * 55)}
+                  data-sa-reveal-duration="680"
+                  className="flex items-center gap-4 border-b border-white/5 pb-4 last:border-0 last:pb-0"
+                >
+                  <div className="w-1.5 h-1.5 bg-ember/50 rotate-45 shrink-0"></div>
+                  <span className="text-text-muted">{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. SKILLS */}
+      <section className="mb-20" data-sa-promote>
+        <div className="mb-10">
+          <h2
+            data-sa-reveal
+            data-sa-reveal-y="14"
+            data-sa-reveal-delay="0"
+            className="text-xl font-bold tracking-tight mb-2"
+          >
+            The tools are secondary. The system is the point.
+          </h2>
+        </div>
+
+        <div className="flex flex-wrap gap-2" data-sa-stagger-list>
+          {skills.map((skill, i) => (
+            <span
+              key={skill}
+              data-sa-reveal
+              data-sa-reveal-y="8"
+              data-sa-reveal-delay={String(i * 28)}
+              data-sa-reveal-duration="620"
+              className="bg-white/5 border border-white/10 text-text-muted text-[10px] font-mono uppercase tracking-widest px-4 py-2 rounded-full hover:border-[#FF6A2A]/40 transition-colors"
+            >
+              {skill}
+            </span>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+```
+
+---
+
+# ماذا تغير عمليًا؟
+
+## قبل التعديل
+
+في `Work.tsx` و`Approach.tsx`:
+
+```txt
+العناصر تظهر مباشرة عند render
+لا يوجد orchestration للـ sections
+لا يوجد stagger مضبوط
+لا يوجد WAAPI reveal
+الـ cards والتايملاين والمهارات كلها static rendering فقط
+```
+
+## بعد التعديل
+
+أصبح عندنا:
+
+```txt
+root ref لكل صفحة
+useRevealSuperAnimation على الصفحة
+data-sa-reveal لكل section/card/step/tag مهم
+data-sa-stagger-list للحاويات المتكررة
+data-sa-promote للعناصر التي تحتاج compositor promotion
+كل reveal يتم عبر opacity + translate3d فقط
+IntersectionObserver يقرر وقت البدء فقط
+WAAPI ينفذ الحركة فعليًا
+```
+
+---
+
+# هل غيرنا شكل الموقع؟
+
+لا. لم يتم تغيير:
+
+```txt
+النصوص
+الألوان
+المقاسات
+الـ spacing
+الـ borders
+الـ shadows
+الـ gradients
+ترتيب الكروت
+ترتيب الخدمات
+ترتيب timeline
+محتوى الأقسام
+```
+
+التغيير الوحيد هو أن العناصر لم تعد تظهر دفعة واحدة؛ أصبحت تدخل بسلاسة عبر `opacity/transform` ثم تستقر في نفس الوضع النهائي القديم.
+
+---
+
+# فرق الأداء المتوقع
+
+| الجزء          | القديم               | الجديد                               |
+| -------------- | -------------------- | ------------------------------------ |
+| دخول sections  | render مباشر         | WAAPI reveal                         |
+| دخول cards     | render مباشر         | staggered compositor reveal          |
+| timeline       | static render        | reveal/stagger بدون layout animation |
+| tags/skills    | render مباشر         | stagger خفيف عبر opacity/transform   |
+| Main Thread    | يرسم الصفحة فقط      | يرسم + trigger خفيف فقط              |
+| Compositor/GPU | غير مستغل للـ reveal | ينفذ reveal فعليًا                   |
+| Scroll work    | لا orchestration     | IntersectionObserver فقط، بدون rAF   |
+
+الأداء الجديد أفضل خصوصًا عند دخول الشبكات الكبيرة مثل case studies وskills، لأننا لا نستخدم `requestAnimationFrame` ولا نحرك `top/left/width/height` ولا نقرأ `getBoundingClientRect`. الحركة كلها `transform/opacity`.
+
+---
+
+# هل يحقق المطلوب؟
+
+نعم لهذه المرحلة. تم تطبيق SuperAnimation على:
+
+```txt
+src/pages/Work.tsx
+src/pages/Approach.tsx
+```
+
+بدون تغيير الشكل، وبتحويل الـ reveal/stagger إلى مسار compositor-safe.
+الملفان أصبحا متوافقين مع الخطة العامة التي طبّقناها على `Home`, `Navigation`, `Footer`, `OverlayLayers`, و`TileEntityForge`.
+
+المتبقي بعد هذه المرحلة، لو أردت إغلاق النطاق الكامل، هو فقط مراجعة ملفات التوليد والبيانات إذا كانت الحركة تُحسب runtime من:
+
+```txt
+generate_paths.ts
+generate_new_paths.ts
+generate_new.cjs
+app/applet/generate_paths.ts
+app/applet/generate_new_paths.ts
+app/applet/generate_new.cjs
+```
+"

@@ -72,83 +72,253 @@ body {
 
 /* Animations */
 @keyframes twinkle {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 @keyframes drift {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-50%); }
+  0% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(-50%);
+  }
 }
 
 @keyframes orbit {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes orbit-reverse {
-  0% { transform: rotate(360deg); }
-  100% { transform: rotate(0deg); }
+  0% {
+    transform: rotate(360deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
 }
 
 @keyframes float-subtle {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.2; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.1); }
+
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(1.1);
+  }
 }
 
 @keyframes spin-slow {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes scan-line {
-  0% { transform: translateY(-100%); opacity: 0; }
-  10%, 90% { opacity: 1; }
-  100% { transform: translateY(500px); opacity: 0; }
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+
+  10%,
+  90% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(500px);
+    opacity: 0;
+  }
 }
 
 @keyframes lock-rotate {
-  0%, 15% { transform: rotate(0deg); }
-  25%, 65% { transform: rotate(90deg); }
-  75%, 100% { transform: rotate(180deg); }
+
+  0%,
+  15% {
+    transform: rotate(0deg);
+  }
+
+  25%,
+  65% {
+    transform: rotate(90deg);
+  }
+
+  75%,
+  100% {
+    transform: rotate(180deg);
+  }
 }
 
 @keyframes seed-breathe {
-  0%, 100% { 
-    transform: scale(1) skewX(0deg) skewY(0deg); 
+
+  0%,
+  100% {
+    transform: scale(1) skewX(0deg) skewY(0deg);
     border-radius: 40% 60% 60% 40% / 50% 50% 50% 50%;
   }
-  25% { 
-    transform: scale(0.98, 1.02) skewX(0.5deg); 
+
+  25% {
+    transform: scale(0.98, 1.02) skewX(0.5deg);
     border-radius: 45% 55% 58% 42% / 48% 52% 48% 52%;
   }
-  50% { 
-    transform: scale(1.02, 0.99) skewY(-0.5deg); 
+
+  50% {
+    transform: scale(1.02, 0.99) skewY(-0.5deg);
     border-radius: 42% 58% 55% 45% / 52% 48% 52% 48%;
   }
-  75% { 
-    transform: scale(0.99, 1.01) skewX(-0.5deg); 
+
+  75% {
+    transform: scale(0.99, 1.01) skewX(-0.5deg);
     border-radius: 48% 52% 62% 38% / 50% 50% 50% 50%;
   }
 }
 
 @keyframes energy-shift {
-  0%, 100% { transform: translate(-10%, -10%); opacity: 0.8; }
-  50% { transform: translate(10%, 10%) scale(1.1); opacity: 1; }
+
+  0%,
+  100% {
+    transform: translate(-10%, -10%);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: translate(10%, 10%) scale(1.1);
+    opacity: 1;
+  }
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.6); opacity: 0; border-width: 1px; }
-  50% { opacity: 1; border-color: rgba(255, 106, 42, 0.15); border-width: 2px; }
-  100% { transform: scale(1.2); opacity: 0; border-width: 1px; }
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+    border-width: 1px;
+  }
+
+  50% {
+    opacity: 1;
+    border-color: rgba(255, 106, 42, 0.15);
+    border-width: 2px;
+  }
+
+  100% {
+    transform: scale(1.2);
+    opacity: 0;
+    border-width: 1px;
+  }
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* ============================================================
+   NullixForge SuperAnimation Layer
+   Goal: compositor-safe runtime without changing visual design.
+   ============================================================ */
+
+@property --sa-noise-1 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-2 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-3 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-4 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+:root {
+  --sa-ready: 1;
+}
+
+html[data-superanimation='ready'] {
+  text-rendering: geometricPrecision;
+}
+
+[data-sa-promote],
+[data-sa-reveal],
+[data-sa-tile],
+[data-sa-drift],
+[data-sa-twinkle] {
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+[data-sa-drift] {
+  will-change: transform;
+}
+
+[data-sa-twinkle] {
+  will-change: opacity;
+}
+
+[data-sa-page-shell] {
+  isolation: isolate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  [data-sa-drift],
+  [data-sa-twinkle],
+  [data-sa-reveal],
+  [data-sa-tile] {
+    animation: none !important;
+    transition: none !important;
+  }
 }
