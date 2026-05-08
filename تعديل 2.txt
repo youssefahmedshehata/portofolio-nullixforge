@@ -1,0 +1,800 @@
+الإجابة المباشرة: **لا نحول كل الملفات إلى WebGL/Canvas**.
+التحويل الصحيح يكون فقط للأجزاء “الرسمية الثقيلة” التي ترسم مشهدًا بصريًا مستمرًا. أما النصوص، الفورم، الكروت، التنقل، والصفحات نفسها تظل DOM + React + SuperAnimation/WAAPI.
+
+من الملف الذي أرسلته واضح أنكم نفذتم بالفعل مرحلة نقل `TileEntityForge` من paint-heavy animations إلى opacity layers، وأن `OverlayLayers` خرج من `requestAnimationFrame` المستمر إلى `LogicKernel` 30Hz، وأن `Starfield` تم ربطه بطبقة SuperAnimation. هذا جيد، لكنه ما زال DOM-heavy لأن عدد العناصر والطبقات كبير. 
+وكذلك الـ blueprint نفسه يؤكد أن الدمج المثالي هو: GSAP/logic للتخطيط والتنسيق، وSilent Compositor/WAAPI/GPU للتنفيذ، وليس تحويل كل UI إلى canvas. 
+
+---
+
+# القرار النهائي: ما الذي يتحول إلى WebGL/Canvas؟
+
+## يتحول فعليًا
+
+```txt
+src/components/Starfield.tsx
+src/components/TileEntityForge.tsx
+```
+
+هذان هما المرشحان الحقيقيان فقط للتحويل.
+
+---
+
+## لا يتحول إلى WebGL/Canvas
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Home.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+```
+
+هذه الملفات لا تتحول إلى Canvas لأنها تحتوي على UI حقيقي: نصوص، أزرار، فورم، كروت، layout، navigation. تحويلها إلى canvas سيكسر accessibility، SEO، التفاعل، responsive layout، والنسخ والضغط على الأزرار.
+
+لكن بعضها يحتاج تعديلات لدعم الـ WebGL/Canvas الجديد.
+
+---
+
+# القائمة الدقيقة للملفات التي ستحتاج تعديل
+
+## 1. ملفات سيتم تحويلها أو استبدالها
+
+### `src/components/Starfield.tsx`
+
+**يتحول إلى Canvas 2D أو WebGL.**
+
+الأفضل هنا: **Canvas 2D أولًا**، لأن starfield بسيط: نقاط، twinkle، drift. لا يحتاج WebGL غالبًا.
+
+سيصبح الملف wrapper فقط:
+
+```txt
+src/components/Starfield.tsx
+```
+
+ويستخدم ملف جديد:
+
+```txt
+src/components/CanvasStarfield.tsx
+```
+
+أو لو اخترنا WebGL:
+
+```txt
+src/components/WebGLStarfield.tsx
+```
+
+القرار الأفضل:
+
+```txt
+Starfield → Canvas 2D
+```
+
+لأن الهدف تقليل DOM nodes من عشرات/مئات النجوم إلى canvas واحد.
+
+---
+
+### `src/components/TileEntityForge.tsx`
+
+**هذا أهم ملف. يتحول إلى WebGL أو Canvas.**
+
+الأفضل هنا: **WebGL** وليس Canvas 2D، لأن عندك:
+
+```txt
+18 tiles
+مسارات حركة
+rotation
+glow
+trace
+terminal dots
+border states
+loop 32s
+state phases
+```
+
+هذه كلها مناسبة جدًا لمشهد WebGL واحد بدل عشرات أو مئات div/layers.
+
+سيصبح:
+
+```txt
+src/components/TileEntityForge.tsx
+```
+
+wrapper يحافظ على نفس `aria-label`, نفس container, نفس overlay، لكنه يستبدل DOM tile grid بواحد من:
+
+```txt
+src/components/WebGLTileEntityForge.tsx
+```
+
+أو:
+
+```txt
+src/components/TileForgeCanvasRenderer.tsx
+```
+
+القرار الأفضل:
+
+```txt
+TileEntityForge visual core → WebGL
+OverlayLayers داخل TileEntityForge → DOM كما هو
+```
+
+---
+
+# 2. ملفات جديدة يجب إنشاؤها
+
+## إلزامية
+
+```txt
+src/rendering/canvas/CanvasStarfield.tsx
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/webglSupport.ts
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+```
+
+## اختيارية لكن أنصح بها بقوة
+
+```txt
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+السبب: لا تعتمد على WebGL فقط. لازم fallback لو WebGL غير مدعوم أو الجهاز ضعيف.
+
+---
+
+# 3. ملفات SuperAnimation التي ستحتاج تعديل
+
+## `src/superanimation/index.ts`
+
+نضيف exports للطبقة الجديدة أو bootstrap للـ rendering mode:
+
+```txt
+export rendering helpers
+export graphics feature detection
+```
+
+---
+
+## `src/superanimation/featureSupport.ts`
+
+يحتاج إضافة detection لـ:
+
+```txt
+supportsCanvas2D
+supportsWebGL
+supportsOffscreenCanvas optional
+devicePixelRatio cap
+prefersReducedMotion موجود بالفعل
+```
+
+---
+
+## `src/superanimation/types.ts`
+
+يحتاج types جديدة مثل:
+
+```txt
+GraphicsPerformanceTier
+RenderLoopHandle
+WebGLRendererState
+ReducedGraphicsMode
+```
+
+---
+
+## `src/superanimation/ProceduralAnimator.ts`
+
+بعد تحويل `Starfield` إلى Canvas، وظيفة `startStarfield` الحالية لن تكون مطلوبة للنجوم DOM.
+لا نحذفها فورًا، لكن تصبح fallback أو legacy path.
+
+---
+
+## `src/superanimation/useTileFieldSuperAnimation.ts`
+
+بعد تحويل `TileEntityForge` إلى WebGL، هذا الملف لن يكون مسؤولًا عن حركة DOM tiles.
+إما نتركه fallback للـ DOM version، أو نسميه legacy:
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts → DOM fallback فقط
+```
+
+---
+
+# 4. ملفات صفحات ستحتاج تعديل خفيف
+
+## `src/pages/Home.tsx`
+
+هذا الملف مهم لأن `TileEntityForge` موجود داخل Home.
+
+التعديل المطلوب:
+
+```txt
+lazy load TileEntityForge
+mount فقط عندما hero/forge قريب من viewport
+pause render loop عندما يخرج من viewport
+```
+
+يعني لا تترك WebGL loop شغال طوال الوقت لو المستخدم نزل للفورم.
+
+---
+
+## `src/pages/Work.tsx`
+
+لا يتحول إلى Canvas/WebGL.
+
+فقط تأكد أن reveals تبقى كما هي:
+
+```txt
+DOM + useRevealSuperAnimation
+```
+
+لا تستخدم WebGL هنا.
+
+---
+
+## `src/pages/Approach.tsx`
+
+لا يتحول إلى Canvas/WebGL.
+
+لكن يوجد `Forge Route Field` في Approach. عندك خياران:
+
+### الخيار الآمن
+
+اتركه DOM لأنه بسيط.
+
+### الخيار الأعلى أداءً
+
+تحويل الرسم الداخلي فقط إلى Canvas صغير:
+
+```txt
+src/components/ApproachRouteCanvas.tsx
+```
+
+لكن هذا ليس أولوية. لا أضعه ضمن المرحلة الأولى.
+
+---
+
+# 5. ملفات لا تلمسها
+
+```txt
+node_modules
+.env.example
+.gitignore
+metadata.json
+README.md
+NullixForge_Architecture_Tree.txt
+ارسال الملفات.txt
+تاسك.txt
+تعديل.txt
+ما تم تنفيذه.txt
+```
+
+---
+
+# القائمة النهائية المختصرة
+
+## سيتم تحويلها إلى Canvas/WebGL
+
+```txt
+src/components/Starfield.tsx
+src/components/TileEntityForge.tsx
+```
+
+---
+
+## سيتم تعديلها لدعم التحويل
+
+```txt
+src/pages/Home.tsx
+src/App.tsx
+src/index.css
+src/superanimation/index.ts
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+```
+
+---
+
+## قد تعدل تعديلًا صغيرًا فقط
+
+```txt
+src/components/OverlayLayers.tsx
+src/superanimation/ProceduralAnimator.ts
+src/superanimation/useTileFieldSuperAnimation.ts
+```
+
+---
+
+## تبقى DOM/WAAPI كما هي
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+---
+
+# لماذا هذه القائمة فقط؟
+
+لأن مشكلة التقطيع غالبًا ليست من React نفسه، بل من:
+
+```txt
+DOM nodes كثيرة
+layers كثيرة
+box-shadow / blur / gradients
+fixed backgrounds
+animations متزامنة
+TileEntityForge DOM layer explosion
+Starfield DOM particles
+```
+
+لذلك تحويل `Navigation`, `Footer`, `Home`, `Work`, `Approach` إلى Canvas لن يحل المشكلة بل سيخلق مشاكل أكبر.
+أما تحويل `Starfield` و`TileEntityForge` سيقلل عدد عناصر DOM والـ layers جذريًا.
+
+---
+
+# المعمارية الصحيحة بعد التحويل
+
+```txt
+React / DOM:
+Navigation
+Footer
+Forms
+Text
+Cards
+Pages
+OverlayLayers text panels
+
+SuperAnimation / WAAPI:
+Page reveal
+Stagger
+Mobile menu
+Small UI transitions
+
+Canvas 2D:
+Starfield
+
+WebGL:
+TileEntityForge visual core
+```
+
+---
+
+# هل هذا يضمن عدم سقوط الفريمات 100%؟
+
+لا أقدر أقول “ضمان 100%” على كل الأجهزة والمتصفحات، لأن الأداء يتأثر بـ GPU الجهاز، المتصفح، عدد التابات، البطارية، thermal throttling، وحجم الشاشة. لكن هذه الخطة هي الطريق الصحيح هندسيًا للوصول لأعلى احتمال لثبات الفريمات بدون كسر الشكل.
+
+الضمان العملي يكون عبر:
+
+```txt
+WebGL/Canvas يعمل فقط عندما visible
+pause عند الخروج من viewport
+cap devicePixelRatio إلى 1 أو 1.25 على الموبايل
+fallback DOM/Canvas عند ضعف WebGL
+تقليل blur/backdrop-filter
+عدم تشغيل أكثر من render loop واحد
+```
+
+---
+
+# أول مرحلة تنفيذ أنصح بها
+
+ابدأ بهذا الترتيب فقط:
+
+```txt
+1. src/components/Starfield.tsx → CanvasStarfield
+2. src/components/TileEntityForge.tsx → WebGLTileForge
+3. src/pages/Home.tsx → lazy/visibility mount
+4. src/superanimation/featureSupport.ts → WebGL/Canvas detection
+5. src/index.css → canvas/webgl layer containment
+```
+
+لو بعد هذه المرحلة استمر التقطيع، وقتها نراجع:
+
+```txt
+backdrop-blur في Navigation/Footer
+large blur glows في Home/Approach
+box-shadow الثقيلة في cards
+```
+
+لكن لا تبدأ بتحويل الصفحات والكروت إلى canvas. هذا سيكون اتجاهًا خاطئًا معماريًا.
+
+
+
+
+تمام. سنقسم التنفيذ إلى **Taskين فقط** كما طلبت، بدون خلط:
+
+```txt
+Task 1: مسار src/components/Starfield.tsx
+Task 2: مسار src/components/TileEntityForge.tsx
+```
+
+وبما أن الخطة الأصلية تقول إن التحويل الحقيقي إلى Canvas/WebGL يخص فقط `Starfield` و`TileEntityForge`، بينما باقي الـ UI يبقى DOM/WAAPI، فالقائمة النهائية يجب أن تكون ضيقة جدًا حتى لا نكسر عناصر أو نلمس ملفات غير لازمة. هذا متوافق مع ما تم تنفيذه سابقًا: `TileEntityForge` تم تحسينه إلى opacity layers، و`OverlayLayers` خرج من `requestAnimationFrame` إلى `LogicKernel`، و`Starfield` أصبح مربوطًا بطبقة SuperAnimation لكنه ما زال DOM-heavy. 
+
+---
+
+# Task 1 — مسار `src/components/Starfield.tsx`
+
+## الهدف
+
+تحويل النجوم من:
+
+```txt
+DOM stars كثيرة + animations على divs
+```
+
+إلى:
+
+```txt
+canvas واحد يرسم كل النجوم
+```
+
+مع الحفاظ على نفس الإحساس البصري: نجوم، twinkle، drift، طبقات مختلفة، opacity، وأداء أعلى.
+
+---
+
+## الملفات الجديدة التي سننشئها ونكتب محتواها كاملًا
+
+```txt
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/canvas/CanvasStarfield.tsx
+```
+
+### وظيفة كل ملف
+
+| الملف                                       | الوظيفة                                         |
+| ------------------------------------------- | ----------------------------------------------- |
+| `src/rendering/renderingTypes.ts`           | types مشتركة للـ render loop وperformance tier  |
+| `src/rendering/useViewportRenderLoop.ts`    | تشغيل/إيقاف الرسم حسب ظهور العنصر في viewport   |
+| `src/rendering/useDevicePerformanceTier.ts` | تحديد جودة الرسم حسب الجهاز وDPR                |
+| `src/rendering/useReducedGraphicsMode.ts`   | احترام `prefers-reduced-motion` وتقليل المؤثرات |
+| `src/rendering/canvas/CanvasStarfield.tsx`  | الرسم الحقيقي للنجوم داخل Canvas بدل DOM stars  |
+
+---
+
+## الملفات الحالية التي سيتم تعديلها في Task 1
+
+```txt
+src/components/Starfield.tsx
+src/superanimation/featureSupport.ts
+src/index.css
+```
+
+### لماذا هذه الملفات فقط؟
+
+| الملف                                  | سبب التعديل                                                      |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `src/components/Starfield.tsx`         | يتحول إلى wrapper يستدعي `CanvasStarfield` بدل توليد divs للنجوم |
+| `src/superanimation/featureSupport.ts` | نضيف detection آمن لـ Canvas 2D وDPR cap                         |
+| `src/index.css`                        | نضيف containment وقواعد ثابتة للـ canvas layer بدون تغيير الشكل  |
+
+---
+
+## لا نعدل في Task 1
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/App.tsx
+src/main.tsx
+src/components/OverlayLayers.tsx
+src/superanimation/ProceduralAnimator.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+مهم جدًا:
+`ProceduralAnimator.ts` و`useStarfieldSuperAnimation` يظلان موجودين كـ legacy/fallback. لا نحذفهم في Task 1 حتى لا نكسر أي import قديم.
+
+---
+
+# القائمة النهائية لـ Task 1
+
+## New files
+
+```txt
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/canvas/CanvasStarfield.tsx
+```
+
+## Modified files
+
+```txt
+src/components/Starfield.tsx
+src/superanimation/featureSupport.ts
+src/index.css
+```
+
+## Total في Task 1
+
+```txt
+5 ملفات جديدة
+3 ملفات تعديل
+= 8 ملفات
+```
+
+---
+
+# Task 2 — مسار `src/components/TileEntityForge.tsx`
+
+## الهدف
+
+تحويل قلب الـ forge visual من:
+
+```txt
+DOM tiles كثيرة + opacity layers كثيرة
+```
+
+إلى:
+
+```txt
+WebGL canvas واحد يرسم tiles/glow/trace/borders/terminal dots
+```
+
+مع بقاء `OverlayLayers` كـ DOM لأنه يحتوي text panels وtrace text ولا يجب تحويله إلى WebGL.
+
+---
+
+## الملفات الجديدة التي سننشئها ونكتب محتواها كاملًا
+
+```txt
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+### وظيفة كل ملف
+
+| الملف                                       | الوظيفة                                        |
+| ------------------------------------------- | ---------------------------------------------- |
+| `src/rendering/webgl/webglSupport.ts`       | كشف WebGL، اختيار context، fallback safety     |
+| `src/rendering/webgl/tileForgeShaders.ts`   | vertex/fragment shaders الخاصة بالـ tile forge |
+| `src/rendering/webgl/tileForgeProgram.ts`   | إنشاء program/buffers/uniforms/draw helpers    |
+| `src/rendering/webgl/WebGLTileForge.tsx`    | renderer الحقيقي للـ tile field داخل WebGL     |
+| `src/rendering/CanvasFallbackTileForge.tsx` | fallback Canvas 2D لو WebGL فشل أو الجهاز ضعيف |
+
+---
+
+## الملفات الحالية التي سيتم تعديلها في Task 2
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+```
+
+### لماذا هذه الملفات؟
+
+| الملف                                  | سبب التعديل                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/components/TileEntityForge.tsx`   | يتحول إلى wrapper يحافظ على نفس chamber والـ labels و`OverlayLayers`، ويستبدل grid DOM بـ `WebGLTileForge` |
+| `src/pages/Home.tsx`                   | lazy/visibility mount للـ forge حتى لا يظل renderer يعمل خارج viewport                                     |
+| `src/superanimation/featureSupport.ts` | إضافة/توسيع WebGL detection لو لم تتم إضافته في Task 1                                                     |
+| `src/superanimation/types.ts`          | إضافة types خاصة بـ graphics/render state لو احتجناها                                                      |
+| `src/index.css`                        | إضافة containment للـ webgl canvas layer                                                                   |
+
+---
+
+## ملفات قد لا نعدلها إلا لو ظهرت ضرورة أثناء التنفيذ
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+القرار الأفضل:
+لا نحذف ولا نكسر هذه الملفات. نجعلها legacy fallback فقط.
+بعد WebGL، `useTileFieldSuperAnimation.ts` لن يكون المسار الأساسي، لكنه يبقى مفيدًا لو احتجنا fallback DOM.
+
+---
+
+## لا نعدل في Task 2
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+---
+
+# القائمة النهائية لـ Task 2
+
+## New files
+
+```txt
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+## Modified files
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+```
+
+## Conditional / legacy files
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+## Total في Task 2
+
+```txt
+5 ملفات جديدة
+5 ملفات تعديل أساسية
+2 ملفات conditional فقط عند الحاجة
+= 10 إلى 12 ملف
+```
+
+---
+
+# الملفات المشتركة بين Task 1 وTask 2
+
+هذه الملفات قد تظهر في المسارين، لكن لا يجب تعديلها مرتين بشكل عشوائي:
+
+```txt
+src/superanimation/featureSupport.ts
+src/index.css
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+```
+
+## القرار الهندسي الأفضل
+
+نكتب ملفات الـ shared rendering في **Task 1** لأنها ستخدم `CanvasStarfield`، ثم يستخدمها Task 2 كما هي:
+
+```txt
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+```
+
+ثم في Task 2 نضيف فقط أجزاء WebGL المتخصصة.
+
+---
+
+# التقسيم النهائي النظيف
+
+## Task 1 — Starfield Canvas
+
+```txt
+CREATE:
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/canvas/CanvasStarfield.tsx
+
+MODIFY:
+src/components/Starfield.tsx
+src/superanimation/featureSupport.ts
+src/index.css
+```
+
+---
+
+## Task 2 — TileEntityForge WebGL
+
+```txt
+CREATE:
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+
+MODIFY:
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+
+OPTIONAL / LEGACY SAFETY:
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+---
+
+# ما لا يدخل في أي Task الآن
+
+لا نلمس هذه الملفات في مرحلة Canvas/WebGL الحالية:
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+package.json
+package-lock.json
+vite.config.ts
+tsconfig.json
+index.html
+README.md
+metadata.json
+```
+
+---
+
+# الخلاصة التنفيذية
+
+ابدأ بـ **Task 1 فقط**:
+
+```txt
+src/components/Starfield.tsx → CanvasStarfield
+```
+
+لأن هذا أقل خطورة، وسينقل starfield من DOM particles إلى canvas واحد.
+
+بعدها نعمل **Task 2**:
+
+```txt
+src/components/TileEntityForge.tsx → WebGLTileForge
+```
+
+لأنه أكبر وأخطر ويحتاج fallback قوي حتى لا تختفي العناصر أو ينكسر الـ forge.
+

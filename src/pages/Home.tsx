@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import TileEntityForge from '../components/TileEntityForge';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+const TileEntityForge = lazy(() => import('../components/TileEntityForge'));
 import { prefersReducedMotion, useRevealSuperAnimation } from '../superanimation';
 
 interface HomeProps {
@@ -97,6 +97,38 @@ export function Home({ initialService, shouldScrollToForm }: HomeProps) {
     }, 800);
   };
 
+  const forgeMountRef = useRef<HTMLDivElement | null>(null);
+  const [shouldMountForge, setShouldMountForge] = useState(false);
+
+  useEffect(() => {
+    const target = forgeMountRef.current;
+
+    if (!target) return undefined;
+
+    if (!('IntersectionObserver' in window)) {
+      setShouldMountForge(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setShouldMountForge(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '480px',
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(target);
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
       ref={homeRef}
@@ -146,7 +178,15 @@ export function Home({ initialService, shouldScrollToForm }: HomeProps) {
           data-sa-reveal-duration="820"
           className="md:w-5/12 w-full mt-16 md:mt-0 relative flex items-center justify-center"
         >
-          <TileEntityForge />
+          <div ref={forgeMountRef} className="w-full h-full">
+            {shouldMountForge ? (
+              <Suspense fallback={<div className="min-h-[740px] md:min-h-[800px] lg:min-h-[900px]" />}>
+                <TileEntityForge />
+              </Suspense>
+            ) : (
+              <div className="min-h-[740px] md:min-h-[800px] lg:min-h-[900px]" aria-hidden="true" />
+            )}
+          </div>
         </div>
       </section>
 

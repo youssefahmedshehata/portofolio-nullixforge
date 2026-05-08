@@ -1,0 +1,2428 @@
+هذه الخطه التي نسير عليها بدقه 100% و معها شجره الملفات الحاليه الموجوده في المشروع   : "
+
+الإجابة المباشرة: **لا نحول كل الملفات إلى WebGL/Canvas**.
+التحويل الصحيح يكون فقط للأجزاء “الرسمية الثقيلة” التي ترسم مشهدًا بصريًا مستمرًا. أما النصوص، الفورم، الكروت، التنقل، والصفحات نفسها تظل DOM + React + SuperAnimation/WAAPI.
+
+من الملف الذي أرسلته واضح أنكم نفذتم بالفعل مرحلة نقل `TileEntityForge` من paint-heavy animations إلى opacity layers، وأن `OverlayLayers` خرج من `requestAnimationFrame` المستمر إلى `LogicKernel` 30Hz، وأن `Starfield` تم ربطه بطبقة SuperAnimation. هذا جيد، لكنه ما زال DOM-heavy لأن عدد العناصر والطبقات كبير. 
+وكذلك الـ blueprint نفسه يؤكد أن الدمج المثالي هو: GSAP/logic للتخطيط والتنسيق، وSilent Compositor/WAAPI/GPU للتنفيذ، وليس تحويل كل UI إلى canvas. 
+
+---
+
+# القرار النهائي: ما الذي يتحول إلى WebGL/Canvas؟
+
+## يتحول فعليًا
+
+```txt
+src/components/Starfield.tsx
+src/components/TileEntityForge.tsx
+```
+
+هذان هما المرشحان الحقيقيان فقط للتحويل.
+
+---
+
+## لا يتحول إلى WebGL/Canvas
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Home.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+```
+
+هذه الملفات لا تتحول إلى Canvas لأنها تحتوي على UI حقيقي: نصوص، أزرار، فورم، كروت، layout، navigation. تحويلها إلى canvas سيكسر accessibility، SEO، التفاعل، responsive layout، والنسخ والضغط على الأزرار.
+
+لكن بعضها يحتاج تعديلات لدعم الـ WebGL/Canvas الجديد.
+
+---
+
+# القائمة الدقيقة للملفات التي ستحتاج تعديل
+
+## 1. ملفات سيتم تحويلها أو استبدالها
+
+### `src/components/Starfield.tsx`
+
+**يتحول إلى Canvas 2D أو WebGL.**
+
+الأفضل هنا: **Canvas 2D أولًا**، لأن starfield بسيط: نقاط، twinkle، drift. لا يحتاج WebGL غالبًا.
+
+سيصبح الملف wrapper فقط:
+
+```txt
+src/components/Starfield.tsx
+```
+
+ويستخدم ملف جديد:
+
+```txt
+src/components/CanvasStarfield.tsx
+```
+
+أو لو اخترنا WebGL:
+
+```txt
+src/components/WebGLStarfield.tsx
+```
+
+القرار الأفضل:
+
+```txt
+Starfield → Canvas 2D
+```
+
+لأن الهدف تقليل DOM nodes من عشرات/مئات النجوم إلى canvas واحد.
+
+---
+
+### `src/components/TileEntityForge.tsx`
+
+**هذا أهم ملف. يتحول إلى WebGL أو Canvas.**
+
+الأفضل هنا: **WebGL** وليس Canvas 2D، لأن عندك:
+
+```txt
+18 tiles
+مسارات حركة
+rotation
+glow
+trace
+terminal dots
+border states
+loop 32s
+state phases
+```
+
+هذه كلها مناسبة جدًا لمشهد WebGL واحد بدل عشرات أو مئات div/layers.
+
+سيصبح:
+
+```txt
+src/components/TileEntityForge.tsx
+```
+
+wrapper يحافظ على نفس `aria-label`, نفس container, نفس overlay، لكنه يستبدل DOM tile grid بواحد من:
+
+```txt
+src/components/WebGLTileEntityForge.tsx
+```
+
+أو:
+
+```txt
+src/components/TileForgeCanvasRenderer.tsx
+```
+
+القرار الأفضل:
+
+```txt
+TileEntityForge visual core → WebGL
+OverlayLayers داخل TileEntityForge → DOM كما هو
+```
+
+---
+
+# 2. ملفات جديدة يجب إنشاؤها
+
+## إلزامية
+
+```txt
+src/rendering/canvas/CanvasStarfield.tsx
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/webglSupport.ts
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+```
+
+## اختيارية لكن أنصح بها بقوة
+
+```txt
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+السبب: لا تعتمد على WebGL فقط. لازم fallback لو WebGL غير مدعوم أو الجهاز ضعيف.
+
+---
+
+# 3. ملفات SuperAnimation التي ستحتاج تعديل
+
+## `src/superanimation/index.ts`
+
+نضيف exports للطبقة الجديدة أو bootstrap للـ rendering mode:
+
+```txt
+export rendering helpers
+export graphics feature detection
+```
+
+---
+
+## `src/superanimation/featureSupport.ts`
+
+يحتاج إضافة detection لـ:
+
+```txt
+supportsCanvas2D
+supportsWebGL
+supportsOffscreenCanvas optional
+devicePixelRatio cap
+prefersReducedMotion موجود بالفعل
+```
+
+---
+
+## `src/superanimation/types.ts`
+
+يحتاج types جديدة مثل:
+
+```txt
+GraphicsPerformanceTier
+RenderLoopHandle
+WebGLRendererState
+ReducedGraphicsMode
+```
+
+---
+
+## `src/superanimation/ProceduralAnimator.ts`
+
+بعد تحويل `Starfield` إلى Canvas، وظيفة `startStarfield` الحالية لن تكون مطلوبة للنجوم DOM.
+لا نحذفها فورًا، لكن تصبح fallback أو legacy path.
+
+---
+
+## `src/superanimation/useTileFieldSuperAnimation.ts`
+
+بعد تحويل `TileEntityForge` إلى WebGL، هذا الملف لن يكون مسؤولًا عن حركة DOM tiles.
+إما نتركه fallback للـ DOM version، أو نسميه legacy:
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts → DOM fallback فقط
+```
+
+---
+
+# 4. ملفات صفحات ستحتاج تعديل خفيف
+
+## `src/pages/Home.tsx`
+
+هذا الملف مهم لأن `TileEntityForge` موجود داخل Home.
+
+التعديل المطلوب:
+
+```txt
+lazy load TileEntityForge
+mount فقط عندما hero/forge قريب من viewport
+pause render loop عندما يخرج من viewport
+```
+
+يعني لا تترك WebGL loop شغال طوال الوقت لو المستخدم نزل للفورم.
+
+---
+
+## `src/pages/Work.tsx`
+
+لا يتحول إلى Canvas/WebGL.
+
+فقط تأكد أن reveals تبقى كما هي:
+
+```txt
+DOM + useRevealSuperAnimation
+```
+
+لا تستخدم WebGL هنا.
+
+---
+
+## `src/pages/Approach.tsx`
+
+لا يتحول إلى Canvas/WebGL.
+
+لكن يوجد `Forge Route Field` في Approach. عندك خياران:
+
+### الخيار الآمن
+
+اتركه DOM لأنه بسيط.
+
+### الخيار الأعلى أداءً
+
+تحويل الرسم الداخلي فقط إلى Canvas صغير:
+
+```txt
+src/components/ApproachRouteCanvas.tsx
+```
+
+لكن هذا ليس أولوية. لا أضعه ضمن المرحلة الأولى.
+
+---
+
+# 5. ملفات لا تلمسها
+
+```txt
+node_modules
+.env.example
+.gitignore
+metadata.json
+README.md
+NullixForge_Architecture_Tree.txt
+ارسال الملفات.txt
+تاسك.txt
+تعديل.txt
+ما تم تنفيذه.txt
+```
+
+---
+
+# القائمة النهائية المختصرة
+
+## سيتم تحويلها إلى Canvas/WebGL
+
+```txt
+src/components/Starfield.tsx
+src/components/TileEntityForge.tsx
+```
+
+---
+
+## سيتم تعديلها لدعم التحويل
+
+```txt
+src/pages/Home.tsx
+src/App.tsx
+src/index.css
+src/superanimation/index.ts
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+```
+
+---
+
+## قد تعدل تعديلًا صغيرًا فقط
+
+```txt
+src/components/OverlayLayers.tsx
+src/superanimation/ProceduralAnimator.ts
+src/superanimation/useTileFieldSuperAnimation.ts
+```
+
+---
+
+## تبقى DOM/WAAPI كما هي
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+---
+
+# لماذا هذه القائمة فقط؟
+
+لأن مشكلة التقطيع غالبًا ليست من React نفسه، بل من:
+
+```txt
+DOM nodes كثيرة
+layers كثيرة
+box-shadow / blur / gradients
+fixed backgrounds
+animations متزامنة
+TileEntityForge DOM layer explosion
+Starfield DOM particles
+```
+
+لذلك تحويل `Navigation`, `Footer`, `Home`, `Work`, `Approach` إلى Canvas لن يحل المشكلة بل سيخلق مشاكل أكبر.
+أما تحويل `Starfield` و`TileEntityForge` سيقلل عدد عناصر DOM والـ layers جذريًا.
+
+---
+
+# المعمارية الصحيحة بعد التحويل
+
+```txt
+React / DOM:
+Navigation
+Footer
+Forms
+Text
+Cards
+Pages
+OverlayLayers text panels
+
+SuperAnimation / WAAPI:
+Page reveal
+Stagger
+Mobile menu
+Small UI transitions
+
+Canvas 2D:
+Starfield
+
+WebGL:
+TileEntityForge visual core
+```
+
+---
+
+# هل هذا يضمن عدم سقوط الفريمات 100%؟
+
+لا أقدر أقول “ضمان 100%” على كل الأجهزة والمتصفحات، لأن الأداء يتأثر بـ GPU الجهاز، المتصفح، عدد التابات، البطارية، thermal throttling، وحجم الشاشة. لكن هذه الخطة هي الطريق الصحيح هندسيًا للوصول لأعلى احتمال لثبات الفريمات بدون كسر الشكل.
+
+الضمان العملي يكون عبر:
+
+```txt
+WebGL/Canvas يعمل فقط عندما visible
+pause عند الخروج من viewport
+cap devicePixelRatio إلى 1 أو 1.25 على الموبايل
+fallback DOM/Canvas عند ضعف WebGL
+تقليل blur/backdrop-filter
+عدم تشغيل أكثر من render loop واحد
+```
+
+---
+
+# أول مرحلة تنفيذ أنصح بها
+
+ابدأ بهذا الترتيب فقط:
+
+```txt
+1. src/components/Starfield.tsx → CanvasStarfield
+2. src/components/TileEntityForge.tsx → WebGLTileForge
+3. src/pages/Home.tsx → lazy/visibility mount
+4. src/superanimation/featureSupport.ts → WebGL/Canvas detection
+5. src/index.css → canvas/webgl layer containment
+```
+
+لو بعد هذه المرحلة استمر التقطيع، وقتها نراجع:
+
+```txt
+backdrop-blur في Navigation/Footer
+large blur glows في Home/Approach
+box-shadow الثقيلة في cards
+```
+
+لكن لا تبدأ بتحويل الصفحات والكروت إلى canvas. هذا سيكون اتجاهًا خاطئًا معماريًا.
+
+
+
+
+تمام. سنقسم التنفيذ إلى **Taskين فقط** كما طلبت، بدون خلط:
+
+```txt
+Task 1: مسار src/components/Starfield.tsx
+Task 2: مسار src/components/TileEntityForge.tsx
+```
+
+وبما أن الخطة الأصلية تقول إن التحويل الحقيقي إلى Canvas/WebGL يخص فقط `Starfield` و`TileEntityForge`، بينما باقي الـ UI يبقى DOM/WAAPI، فالقائمة النهائية يجب أن تكون ضيقة جدًا حتى لا نكسر عناصر أو نلمس ملفات غير لازمة. هذا متوافق مع ما تم تنفيذه سابقًا: `TileEntityForge` تم تحسينه إلى opacity layers، و`OverlayLayers` خرج من `requestAnimationFrame` إلى `LogicKernel`، و`Starfield` أصبح مربوطًا بطبقة SuperAnimation لكنه ما زال DOM-heavy. 
+
+---
+
+# Task 1 — مسار `src/components/Starfield.tsx`
+
+## الهدف
+
+تحويل النجوم من:
+
+```txt
+DOM stars كثيرة + animations على divs
+```
+
+إلى:
+
+```txt
+canvas واحد يرسم كل النجوم
+```
+
+مع الحفاظ على نفس الإحساس البصري: نجوم، twinkle، drift، طبقات مختلفة، opacity، وأداء أعلى.
+
+---
+
+## الملفات الجديدة التي سننشئها ونكتب محتواها كاملًا
+
+```txt
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/canvas/CanvasStarfield.tsx
+```
+
+### وظيفة كل ملف
+
+| الملف                                       | الوظيفة                                         |
+| ------------------------------------------- | ----------------------------------------------- |
+| `src/rendering/renderingTypes.ts`           | types مشتركة للـ render loop وperformance tier  |
+| `src/rendering/useViewportRenderLoop.ts`    | تشغيل/إيقاف الرسم حسب ظهور العنصر في viewport   |
+| `src/rendering/useDevicePerformanceTier.ts` | تحديد جودة الرسم حسب الجهاز وDPR                |
+| `src/rendering/useReducedGraphicsMode.ts`   | احترام `prefers-reduced-motion` وتقليل المؤثرات |
+| `src/rendering/canvas/CanvasStarfield.tsx`  | الرسم الحقيقي للنجوم داخل Canvas بدل DOM stars  |
+
+---
+
+## الملفات الحالية التي سيتم تعديلها في Task 1
+
+```txt
+src/components/Starfield.tsx
+src/superanimation/featureSupport.ts
+src/index.css
+```
+
+### لماذا هذه الملفات فقط؟
+
+| الملف                                  | سبب التعديل                                                      |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `src/components/Starfield.tsx`         | يتحول إلى wrapper يستدعي `CanvasStarfield` بدل توليد divs للنجوم |
+| `src/superanimation/featureSupport.ts` | نضيف detection آمن لـ Canvas 2D وDPR cap                         |
+| `src/index.css`                        | نضيف containment وقواعد ثابتة للـ canvas layer بدون تغيير الشكل  |
+
+---
+
+## لا نعدل في Task 1
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/App.tsx
+src/main.tsx
+src/components/OverlayLayers.tsx
+src/superanimation/ProceduralAnimator.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+مهم جدًا:
+`ProceduralAnimator.ts` و`useStarfieldSuperAnimation` يظلان موجودين كـ legacy/fallback. لا نحذفهم في Task 1 حتى لا نكسر أي import قديم.
+
+---
+
+# القائمة النهائية لـ Task 1
+
+## New files
+
+```txt
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/canvas/CanvasStarfield.tsx
+```
+
+## Modified files
+
+```txt
+src/components/Starfield.tsx
+src/superanimation/featureSupport.ts
+src/index.css
+```
+
+## Total في Task 1
+
+```txt
+5 ملفات جديدة
+3 ملفات تعديل
+= 8 ملفات
+```
+
+---
+
+# Task 2 — مسار `src/components/TileEntityForge.tsx`
+
+## الهدف
+
+تحويل قلب الـ forge visual من:
+
+```txt
+DOM tiles كثيرة + opacity layers كثيرة
+```
+
+إلى:
+
+```txt
+WebGL canvas واحد يرسم tiles/glow/trace/borders/terminal dots
+```
+
+مع بقاء `OverlayLayers` كـ DOM لأنه يحتوي text panels وtrace text ولا يجب تحويله إلى WebGL.
+
+---
+
+## الملفات الجديدة التي سننشئها ونكتب محتواها كاملًا
+
+```txt
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+### وظيفة كل ملف
+
+| الملف                                       | الوظيفة                                        |
+| ------------------------------------------- | ---------------------------------------------- |
+| `src/rendering/webgl/webglSupport.ts`       | كشف WebGL، اختيار context، fallback safety     |
+| `src/rendering/webgl/tileForgeShaders.ts`   | vertex/fragment shaders الخاصة بالـ tile forge |
+| `src/rendering/webgl/tileForgeProgram.ts`   | إنشاء program/buffers/uniforms/draw helpers    |
+| `src/rendering/webgl/WebGLTileForge.tsx`    | renderer الحقيقي للـ tile field داخل WebGL     |
+| `src/rendering/CanvasFallbackTileForge.tsx` | fallback Canvas 2D لو WebGL فشل أو الجهاز ضعيف |
+
+---
+
+## الملفات الحالية التي سيتم تعديلها في Task 2
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+```
+
+### لماذا هذه الملفات؟
+
+| الملف                                  | سبب التعديل                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/components/TileEntityForge.tsx`   | يتحول إلى wrapper يحافظ على نفس chamber والـ labels و`OverlayLayers`، ويستبدل grid DOM بـ `WebGLTileForge` |
+| `src/pages/Home.tsx`                   | lazy/visibility mount للـ forge حتى لا يظل renderer يعمل خارج viewport                                     |
+| `src/superanimation/featureSupport.ts` | إضافة/توسيع WebGL detection لو لم تتم إضافته في Task 1                                                     |
+| `src/superanimation/types.ts`          | إضافة types خاصة بـ graphics/render state لو احتجناها                                                      |
+| `src/index.css`                        | إضافة containment للـ webgl canvas layer                                                                   |
+
+---
+
+## ملفات قد لا نعدلها إلا لو ظهرت ضرورة أثناء التنفيذ
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+القرار الأفضل:
+لا نحذف ولا نكسر هذه الملفات. نجعلها legacy fallback فقط.
+بعد WebGL، `useTileFieldSuperAnimation.ts` لن يكون المسار الأساسي، لكنه يبقى مفيدًا لو احتجنا fallback DOM.
+
+---
+
+## لا نعدل في Task 2
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+---
+
+# القائمة النهائية لـ Task 2
+
+## New files
+
+```txt
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+## Modified files
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+```
+
+## Conditional / legacy files
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+## Total في Task 2
+
+```txt
+5 ملفات جديدة
+5 ملفات تعديل أساسية
+2 ملفات conditional فقط عند الحاجة
+= 10 إلى 12 ملف
+```
+
+---
+
+# الملفات المشتركة بين Task 1 وTask 2
+
+هذه الملفات قد تظهر في المسارين، لكن لا يجب تعديلها مرتين بشكل عشوائي:
+
+```txt
+src/superanimation/featureSupport.ts
+src/index.css
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+```
+
+## القرار الهندسي الأفضل
+
+نكتب ملفات الـ shared rendering في **Task 1** لأنها ستخدم `CanvasStarfield`، ثم يستخدمها Task 2 كما هي:
+
+```txt
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+```
+
+ثم في Task 2 نضيف فقط أجزاء WebGL المتخصصة.
+
+---
+
+# التقسيم النهائي النظيف
+
+## Task 1 — Starfield Canvas
+
+```txt
+CREATE:
+src/rendering/renderingTypes.ts
+src/rendering/useViewportRenderLoop.ts
+src/rendering/useDevicePerformanceTier.ts
+src/rendering/useReducedGraphicsMode.ts
+src/rendering/canvas/CanvasStarfield.tsx
+
+MODIFY:
+src/components/Starfield.tsx
+src/superanimation/featureSupport.ts
+src/index.css
+```
+
+---
+
+## Task 2 — TileEntityForge WebGL
+
+```txt
+CREATE:
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+
+MODIFY:
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+
+OPTIONAL / LEGACY SAFETY:
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+---
+
+# ما لا يدخل في أي Task الآن
+
+لا نلمس هذه الملفات في مرحلة Canvas/WebGL الحالية:
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+package.json
+package-lock.json
+vite.config.ts
+tsconfig.json
+index.html
+README.md
+metadata.json
+```
+
+---
+
+# الخلاصة التنفيذية
+
+ابدأ بـ **Task 1 فقط**:
+
+```txt
+src/components/Starfield.tsx → CanvasStarfield
+```
+
+لأن هذا أقل خطورة، وسينقل starfield من DOM particles إلى canvas واحد.
+
+بعدها نعمل **Task 2**:
+
+```txt
+src/components/TileEntityForge.tsx → WebGLTileForge
+```
+
+لأنه أكبر وأخطر ويحتاج fallback قوي حتى لا تختفي العناصر أو ينكسر الـ forge.
+
+
+
+"
+
+
+
+
+
+قم الان بتطبيق ال webgl and canvas concept بدقه 100% لا تترك اي شئ بها يحتاج تعديل الا و تعدله بدقه 100% حرف حرف و فكره فكره و جمله جمله بدقه 100% لن اقبل بدقه اقل من 100% اطلاقا بمستوى principle engineer بدقه 100% على هذه الملفات الحاليه و اذا كان هناك ملفات جديده يجب انشائها اعطني اسم و موقع الملف الذي يجب انشائه و اعطني الكود الخاص به و اذا كان هناك ملف اخر غير الملفات المراد اعاده كتابتها كامله بعد التعديل المدرجه في الاسفل يجب تعديله اعطني الكود المعدل الخاص بالجزء الذي يجب تعديله بدقه 100% فقط لا تعيد كتابه الملف كاملا حتى استبدل الجزء القديم و و اخبرني موقع التعديل بدقه 100% داخل الملف حتى استبدله مباشره حيث اريد سرعه و سلاسه غير مسبوقه اريد افضل تجربه مستخدم بدقه 100% لا اريد تغيير شكل الموقع ابدا اريد فقط تطبيق المعماريه الخاصه بنا في nullixforge و التي اسمها ال webgl and canvas 
+و اخبرني الفرق بين الكود القديم و الكود الجديد من حيث العمليه و ماذا يحقق و ما هي مميزات الكود الجديد و هل يحقق ما نرجوه ام لا و ما فرق الاداء بين الكود القديم و الكود الجديد بدقه 100%
+
+
+يجب ان تتبع هذه القواعد بدقه 100% لن اقبل بدقه اقل من 100% بمستوى دقه بمستوى system arhcitecture excellence  اعلى من مستوى enterprise production اتبع هذه النصيحه بدقه 100% لن اقبل بدقه اقل من 100% حتى ننتقل من مجرد system architecture excellence فقط الى  MACRO-MICRO DUALITY & LOW-LEVEL RIGOR excellency ايضا : "
+
+
+[SYSTEM DIRECTIVE: MACRO-MICRO DUALITY & LOW-LEVEL RIGOR]
+
+I am assigning you a critical cognitive framework. Read carefully and acknowledge your inherent AI bias before executing any code.
+
+1. THE DIAGNOSIS OF YOUR FLAW:
+As an AI, your default behavior is "Architectural Tunnel Vision". You excel at designing the high-level Macro-Architecture and fulfilling the structural plan with 100% accuracy. However, you consistently fail to look downward into the "Micro-Level Operations". You assume that if the architecture is sound, the individual operations will execute perfectly. You fail to act as a "Low-Level Technical Researcher" who scrutinizes the isolated, code-level edge cases of every single sub-operation. If these scientific and technical micro-edge cases are ignored, the entire macro-architecture will crash in a real-world environment. 
+
+2. YOUR NEW PERSONA:
+From now on, you are a "Dual-Minded Engineer":
+- Mind A: The High-Level System Architect (Handles Macro-edge cases and structural flow).
+- Mind B: The Low-Level Scientific Researcher (Isolates every micro-operation, tears it apart, and scrutinizes it for technical execution flaws, memory issues, hardware limits, and code-level edge cases).
+
+3. THE EXECUTION PIPELINE (MANDATORY PROTOCOL):
+For every coding task or system design I give you, you MUST execute the following pipeline before writing the final code:
+
+- STEP 1 (Deconstruction): Break down the overall architecture into small, isolated micro-operations. 
+- STEP 2 (Micro-Level Scrutiny): Treat EVERY single micro-operation as an independent universe. Do NOT look at the big picture right now. 
+- STEP 3 (Edge-Case Hunting): For each isolated operation, analyze it from a purely scientific/technical perspective. Ask yourself:
+   * What happens if data types implicitly coerce here?
+   * What are the exact memory/CPU implications of this specific loop/query?
+   * Are there race conditions, null pointers, or async timing issues in this exact line?
+   * What if the external payload exceeds hardware limits during this specific transformation?
+- STEP 4 (Micro-Resolutions): Write the specific error-handling, fallback, and validation code for these micro-edge cases.
+- STEP 5 (Macro-Integration): Now, integrate these hardened, bulletproof micro-operations back into the macro-architecture.
+
+4. YOUR OUTPUT FORMAT:
+Whenever I ask you to write code, do NOT just give me the code. You must first output a section titled "[LOW-LEVEL RESEARCHER ANALYSIS]" where you explicitly list the hidden micro-edge cases you discovered in the sub-operations and explain how you patched them technically. Only then, provide the final architecture code.
+
+Acknowledge this directive. Do you understand the difference between Macro-Architectural edge cases (which you are good at) and Micro-Operational technical edge cases (which you will now ruthlessly hunt)?
+
+
+"
+
+
+: "
+
+هيا نقم بتنفيذ هذه المرحله اعطني الملفات كامله بعد التعديل لا تترك اي شئ بها يحتاج تعديل الا و تعدله بدقه 100% : "
+# Task 2 — مسار `src/components/TileEntityForge.tsx`
+
+## الهدف
+
+تحويل قلب الـ forge visual من:
+
+```txt
+DOM tiles كثيرة + opacity layers كثيرة
+```
+
+إلى:
+
+```txt
+WebGL canvas واحد يرسم tiles/glow/trace/borders/terminal dots
+```
+
+مع بقاء `OverlayLayers` كـ DOM لأنه يحتوي text panels وtrace text ولا يجب تحويله إلى WebGL.
+
+---
+
+## الملفات الجديدة التي سننشئها ونكتب محتواها كاملًا
+
+```txt
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+### وظيفة كل ملف
+
+| الملف                                       | الوظيفة                                        |
+| ------------------------------------------- | ---------------------------------------------- |
+| `src/rendering/webgl/webglSupport.ts`       | كشف WebGL، اختيار context، fallback safety     |
+| `src/rendering/webgl/tileForgeShaders.ts`   | vertex/fragment shaders الخاصة بالـ tile forge |
+| `src/rendering/webgl/tileForgeProgram.ts`   | إنشاء program/buffers/uniforms/draw helpers    |
+| `src/rendering/webgl/WebGLTileForge.tsx`    | renderer الحقيقي للـ tile field داخل WebGL     |
+| `src/rendering/CanvasFallbackTileForge.tsx` | fallback Canvas 2D لو WebGL فشل أو الجهاز ضعيف |
+
+---
+
+## الملفات الحالية التي سيتم تعديلها في Task 2
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+```
+
+### لماذا هذه الملفات؟
+
+| الملف                                  | سبب التعديل                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/components/TileEntityForge.tsx`   | يتحول إلى wrapper يحافظ على نفس chamber والـ labels و`OverlayLayers`، ويستبدل grid DOM بـ `WebGLTileForge` |
+| `src/pages/Home.tsx`                   | lazy/visibility mount للـ forge حتى لا يظل renderer يعمل خارج viewport                                     |
+| `src/superanimation/featureSupport.ts` | إضافة/توسيع WebGL detection لو لم تتم إضافته في Task 1                                                     |
+| `src/superanimation/types.ts`          | إضافة types خاصة بـ graphics/render state لو احتجناها                                                      |
+| `src/index.css`                        | إضافة containment للـ webgl canvas layer                                                                   |
+
+---
+
+## ملفات قد لا نعدلها إلا لو ظهرت ضرورة أثناء التنفيذ
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+القرار الأفضل:
+لا نحذف ولا نكسر هذه الملفات. نجعلها legacy fallback فقط.
+بعد WebGL، `useTileFieldSuperAnimation.ts` لن يكون المسار الأساسي، لكنه يبقى مفيدًا لو احتجنا fallback DOM.
+
+---
+
+## لا نعدل في Task 2
+
+```txt
+src/components/Navigation.tsx
+src/components/Footer.tsx
+src/components/OverlayLayers.tsx
+src/pages/Work.tsx
+src/pages/Approach.tsx
+src/App.tsx
+src/main.tsx
+src/superanimation/CompositorBridge.ts
+src/superanimation/LogicKernel.ts
+src/superanimation/MotionController.ts
+src/superanimation/PhysicsCompressor.ts
+src/superanimation/PhysicsFactory.ts
+src/superanimation/ReactiveIndexer.ts
+src/superanimation/useRevealSuperAnimation.ts
+src/superanimation/useSuperAnimation.ts
+```
+
+---
+
+# القائمة النهائية لـ Task 2
+
+## New files
+
+```txt
+src/rendering/webgl/webglSupport.ts
+src/rendering/webgl/tileForgeShaders.ts
+src/rendering/webgl/tileForgeProgram.ts
+src/rendering/webgl/WebGLTileForge.tsx
+src/rendering/CanvasFallbackTileForge.tsx
+```
+
+## Modified files
+
+```txt
+src/components/TileEntityForge.tsx
+src/pages/Home.tsx
+src/superanimation/featureSupport.ts
+src/superanimation/types.ts
+src/index.css
+```
+
+## Conditional / legacy files
+
+```txt
+src/superanimation/useTileFieldSuperAnimation.ts
+src/superanimation/ProceduralAnimator.ts
+```
+
+## Total في Task 2
+
+```txt
+5 ملفات جديدة
+5 ملفات تعديل أساسية
+2 ملفات conditional فقط عند الحاجة
+= 10 إلى 12 ملف
+```
+
+---
+
+"
+
+
+src/components/TileEntityForge.tsx هذا المحتوى الحالي لهذا الملف : "import React, { useMemo, useRef } from 'react';
+import { useTileFieldSuperAnimation } from '../superanimation';
+import OverlayLayers from './OverlayLayers';
+
+const TILES = [{ "id": "T01", "path": [{ "p": 0, "c": 8, "r": 5, "rot": 0 }, { "p": 8.75, "c": 8, "r": 5, "rot": 0 }, { "p": 16.875, "c": 9, "r": 5, "rot": 1.4 }, { "p": 25, "c": 9, "r": 6, "rot": 0.9 }, { "p": 27.5, "c": 9, "r": 6, "rot": 0 }, { "p": 31.583, "c": 9, "r": 6, "rot": 0.55 }, { "p": 36.25, "c": 9, "r": 6, "rot": -0.55 }, { "p": 36.251, "c": 9, "r": 6, "rot": 0 }, { "p": 51.25, "c": 10, "r": 6, "rot": 1.4 }, { "p": 53.75, "c": 10, "r": 6, "rot": 0 }, { "p": 58.417, "c": 10, "r": 6, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 6, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 6, "rot": 0 }, { "p": 81.25, "c": 9, "r": 6, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 6, "rot": 0 }, { "p": 94.375, "c": 9, "r": 6, "rot": 0 }, { "p": 97.188, "c": 8, "r": 6, "rot": -1.4 }, { "p": 100, "c": 8, "r": 5, "rot": -0.9 }], "redAStart": 32.8125, "redBStart": 53.75, "greenStart": 90.125 }, { "id": "T02", "path": [{ "p": 0, "c": 6, "r": 6, "rot": 0 }, { "p": 8.75, "c": 6, "r": 6, "rot": 0 }, { "p": 16.875, "c": 7, "r": 6, "rot": 1.4 }, { "p": 25, "c": 7, "r": 7, "rot": 0.9 }, { "p": 27.5, "c": 7, "r": 7, "rot": 0 }, { "p": 31.583, "c": 7, "r": 7, "rot": 0.55 }, { "p": 36.25, "c": 7, "r": 7, "rot": -0.55 }, { "p": 36.251, "c": 7, "r": 7, "rot": 0 }, { "p": 51.25, "c": 8, "r": 7, "rot": 1.4 }, { "p": 53.75, "c": 8, "r": 7, "rot": 0 }, { "p": 58.417, "c": 8, "r": 7, "rot": -0.35 }, { "p": 63.75, "c": 8, "r": 7, "rot": 0.35 }, { "p": 63.751, "c": 8, "r": 7, "rot": 0 }, { "p": 81.25, "c": 8, "r": 7, "rot": 0 }, { "p": 83.75, "c": 8, "r": 7, "rot": 0 }, { "p": 94.375, "c": 8, "r": 7, "rot": 0 }, { "p": 96.25, "c": 7, "r": 7, "rot": -1.4 }, { "p": 98.125, "c": 6, "r": 7, "rot": -1.4 }, { "p": 100, "c": 6, "r": 6, "rot": -0.9 }], "redAStart": 30, "redBStart": 60, "greenStart": 86.725 }, { "id": "T03", "path": [{ "p": 0, "c": 9, "r": 5, "rot": 0 }, { "p": 8.75, "c": 9, "r": 5, "rot": 0 }, { "p": 16.875, "c": 9, "r": 6, "rot": 0.9 }, { "p": 25, "c": 9, "r": 7, "rot": 0.9 }, { "p": 27.5, "c": 9, "r": 7, "rot": 0 }, { "p": 31.583, "c": 9, "r": 7, "rot": -0.55 }, { "p": 36.25, "c": 9, "r": 7, "rot": 0.55 }, { "p": 36.251, "c": 9, "r": 7, "rot": 0 }, { "p": 51.25, "c": 9, "r": 7, "rot": 0 }, { "p": 53.75, "c": 9, "r": 7, "rot": 0 }, { "p": 58.417, "c": 9, "r": 7, "rot": 0.35 }, { "p": 63.75, "c": 9, "r": 7, "rot": -0.35 }, { "p": 63.751, "c": 9, "r": 7, "rot": 0 }, { "p": 81.25, "c": 9, "r": 7, "rot": 0 }, { "p": 83.75, "c": 9, "r": 7, "rot": 0 }, { "p": 94.375, "c": 9, "r": 7, "rot": 0 }, { "p": 97.188, "c": 9, "r": 6, "rot": -0.9 }, { "p": 100, "c": 9, "r": 5, "rot": -0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 83.75 }, { "id": "T04", "path": [{ "p": 0, "c": 12, "r": 6, "rot": 0 }, { "p": 8.75, "c": 12, "r": 6, "rot": 0 }, { "p": 16.875, "c": 11, "r": 6, "rot": -1.4 }, { "p": 25, "c": 11, "r": 7, "rot": 0.9 }, { "p": 27.5, "c": 11, "r": 7, "rot": 0 }, { "p": 31.583, "c": 11, "r": 7, "rot": -0.55 }, { "p": 36.25, "c": 11, "r": 7, "rot": 0.55 }, { "p": 36.251, "c": 11, "r": 7, "rot": 0 }, { "p": 51.25, "c": 10, "r": 7, "rot": -1.4 }, { "p": 53.75, "c": 10, "r": 7, "rot": 0 }, { "p": 58.417, "c": 10, "r": 7, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 7, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 7, "rot": 0 }, { "p": 81.25, "c": 10, "r": 7, "rot": 0 }, { "p": 83.75, "c": 10, "r": 7, "rot": 0 }, { "p": 94.375, "c": 10, "r": 7, "rot": 0 }, { "p": 96.25, "c": 11, "r": 7, "rot": 1.4 }, { "p": 98.125, "c": 12, "r": 7, "rot": 1.4 }, { "p": 100, "c": 12, "r": 6, "rot": -0.9 }], "redAStart": 30, "redBStart": 60, "greenStart": 86.725 }, { "id": "T05", "path": [{ "p": 0, "c": 5, "r": 8, "rot": 0 }, { "p": 8.75, "c": 5, "r": 8, "rot": 0 }, { "p": 16.875, "c": 6, "r": 8, "rot": 1.4 }, { "p": 25, "c": 7, "r": 8, "rot": 1.4 }, { "p": 27.5, "c": 7, "r": 8, "rot": 0 }, { "p": 31.583, "c": 7, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 7, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 7, "r": 8, "rot": 0 }, { "p": 51.25, "c": 7, "r": 8, "rot": 0 }, { "p": 53.75, "c": 7, "r": 8, "rot": 0 }, { "p": 58.417, "c": 7, "r": 8, "rot": -0.35 }, { "p": 63.75, "c": 7, "r": 8, "rot": 0.35 }, { "p": 63.751, "c": 7, "r": 8, "rot": 0 }, { "p": 81.25, "c": 7, "r": 8, "rot": 0 }, { "p": 83.75, "c": 7, "r": 8, "rot": 0 }, { "p": 94.375, "c": 7, "r": 8, "rot": 0 }, { "p": 97.188, "c": 6, "r": 8, "rot": -1.4 }, { "p": 100, "c": 5, "r": 8, "rot": -1.4 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 90.125 }, { "id": "T06", "path": [{ "p": 0, "c": 7, "r": 7, "rot": 0 }, { "p": 8.75, "c": 7, "r": 7, "rot": 0 }, { "p": 16.875, "c": 8, "r": 7, "rot": 1.4 }, { "p": 25, "c": 8, "r": 8, "rot": 0.9 }, { "p": 27.5, "c": 8, "r": 8, "rot": 0 }, { "p": 31.583, "c": 8, "r": 8, "rot": 0.55 }, { "p": 36.25, "c": 8, "r": 8, "rot": -0.55 }, { "p": 36.251, "c": 8, "r": 8, "rot": 0 }, { "p": 51.25, "c": 9, "r": 8, "rot": 1.4 }, { "p": 53.75, "c": 9, "r": 8, "rot": 0 }, { "p": 58.417, "c": 9, "r": 8, "rot": -0.35 }, { "p": 63.75, "c": 9, "r": 8, "rot": 0.35 }, { "p": 63.751, "c": 9, "r": 8, "rot": 0 }, { "p": 81.25, "c": 8, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 8, "r": 8, "rot": 0 }, { "p": 94.375, "c": 8, "r": 8, "rot": 0 }, { "p": 97.188, "c": 7, "r": 8, "rot": -1.4 }, { "p": 100, "c": 7, "r": 7, "rot": -0.9 }], "redAStart": 32.8125, "redBStart": 56.5625, "greenStart": 86.725 }, { "id": "T07", "path": [{ "p": 0, "c": 10, "r": 6, "rot": 0 }, { "p": 8.75, "c": 10, "r": 6, "rot": 0 }, { "p": 16.875, "c": 10, "r": 7, "rot": 0.9 }, { "p": 25, "c": 10, "r": 8, "rot": 0.9 }, { "p": 27.5, "c": 10, "r": 8, "rot": 0 }, { "p": 31.583, "c": 10, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 10, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 10, "r": 8, "rot": 0 }, { "p": 51.25, "c": 10, "r": 8, "rot": 0 }, { "p": 53.75, "c": 10, "r": 8, "rot": 0 }, { "p": 58.417, "c": 10, "r": 8, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 8, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 8, "rot": 0 }, { "p": 81.25, "c": 9, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 8, "rot": 0 }, { "p": 94.375, "c": 9, "r": 8, "rot": 0 }, { "p": 96.25, "c": 10, "r": 8, "rot": 1.4 }, { "p": 98.125, "c": 10, "r": 7, "rot": -0.9 }, { "p": 100, "c": 10, "r": 6, "rot": -0.9 }], "redAStart": 27.5, "redBStart": 56.5625, "greenStart": 83.75 }, { "id": "T08", "path": [{ "p": 0, "c": 12, "r": 8, "rot": 0 }, { "p": 8.75, "c": 12, "r": 8, "rot": 0 }, { "p": 25, "c": 11, "r": 8, "rot": -1.4 }, { "p": 27.5, "c": 11, "r": 8, "rot": 0 }, { "p": 31.583, "c": 11, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 11, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 11, "r": 8, "rot": 0 }, { "p": 51.25, "c": 11, "r": 8, "rot": 0 }, { "p": 53.75, "c": 11, "r": 8, "rot": 0 }, { "p": 58.417, "c": 11, "r": 8, "rot": 0.35 }, { "p": 63.75, "c": 11, "r": 8, "rot": -0.35 }, { "p": 63.751, "c": 11, "r": 8, "rot": 0 }, { "p": 81.25, "c": 10, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 10, "r": 8, "rot": 0 }, { "p": 94.375, "c": 10, "r": 8, "rot": 0 }, { "p": 97.188, "c": 11, "r": 8, "rot": 1.4 }, { "p": 100, "c": 12, "r": 8, "rot": 1.4 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 86.725 }, { "id": "T09", "path": [{ "p": 0, "c": 13, "r": 9, "rot": 0 }, { "p": 8.75, "c": 13, "r": 9, "rot": 0 }, { "p": 16.875, "c": 12, "r": 9, "rot": -1.4 }, { "p": 25, "c": 12, "r": 8, "rot": -0.9 }, { "p": 27.5, "c": 12, "r": 8, "rot": 0 }, { "p": 31.583, "c": 12, "r": 8, "rot": -0.55 }, { "p": 36.25, "c": 12, "r": 8, "rot": 0.55 }, { "p": 36.251, "c": 12, "r": 8, "rot": 0 }, { "p": 51.25, "c": 12, "r": 8, "rot": 0 }, { "p": 53.75, "c": 12, "r": 8, "rot": 0 }, { "p": 58.417, "c": 12, "r": 8, "rot": 0.35 }, { "p": 63.75, "c": 12, "r": 8, "rot": -0.35 }, { "p": 63.751, "c": 12, "r": 8, "rot": 0 }, { "p": 81.25, "c": 11, "r": 8, "rot": -1.4 }, { "p": 83.75, "c": 11, "r": 8, "rot": 0 }, { "p": 94.375, "c": 11, "r": 8, "rot": 0 }, { "p": 96.25, "c": 12, "r": 8, "rot": 1.4 }, { "p": 98.125, "c": 13, "r": 8, "rot": 1.4 }, { "p": 100, "c": 13, "r": 9, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 90.125 }, { "id": "T10", "path": [{ "p": 0, "c": 5, "r": 10, "rot": 0 }, { "p": 8.75, "c": 5, "r": 10, "rot": 0 }, { "p": 16.875, "c": 6, "r": 10, "rot": 1.4 }, { "p": 25, "c": 6, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 6, "r": 9, "rot": 0 }, { "p": 31.583, "c": 6, "r": 9, "rot": 0.55 }, { "p": 36.25, "c": 6, "r": 9, "rot": -0.55 }, { "p": 36.251, "c": 6, "r": 9, "rot": 0 }, { "p": 51.25, "c": 7, "r": 9, "rot": 1.4 }, { "p": 53.75, "c": 7, "r": 9, "rot": 0 }, { "p": 58.417, "c": 7, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 7, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 7, "r": 9, "rot": 0 }, { "p": 81.25, "c": 7, "r": 9, "rot": 0 }, { "p": 83.75, "c": 7, "r": 9, "rot": 0 }, { "p": 94.375, "c": 7, "r": 9, "rot": 0 }, { "p": 96.25, "c": 6, "r": 9, "rot": -1.4 }, { "p": 98.125, "c": 5, "r": 9, "rot": -1.4 }, { "p": 100, "c": 5, "r": 10, "rot": 0.9 }], "redAStart": 30, "redBStart": 60, "greenStart": 90.125 }, { "id": "T11", "path": [{ "p": 0, "c": 7, "r": 11, "rot": 0 }, { "p": 8.75, "c": 7, "r": 11, "rot": 0 }, { "p": 14.166, "c": 8, "r": 11, "rot": 1.4 }, { "p": 19.584, "c": 8, "r": 10, "rot": -0.9 }, { "p": 25, "c": 8, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 8, "r": 9, "rot": 0 }, { "p": 31.583, "c": 8, "r": 9, "rot": -0.55 }, { "p": 36.25, "c": 8, "r": 9, "rot": 0.55 }, { "p": 36.251, "c": 8, "r": 9, "rot": 0 }, { "p": 51.25, "c": 8, "r": 9, "rot": 0 }, { "p": 53.75, "c": 8, "r": 9, "rot": 0 }, { "p": 58.417, "c": 8, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 8, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 8, "r": 9, "rot": 0 }, { "p": 81.25, "c": 8, "r": 9, "rot": 0 }, { "p": 83.75, "c": 8, "r": 9, "rot": 0 }, { "p": 94.375, "c": 8, "r": 9, "rot": 0 }, { "p": 96.25, "c": 7, "r": 9, "rot": -1.4 }, { "p": 98.125, "c": 7, "r": 10, "rot": 0.9 }, { "p": 100, "c": 7, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 86.725 }, { "id": "T12", "path": [{ "p": 0, "c": 9, "r": 12, "rot": 0 }, { "p": 8.75, "c": 9, "r": 12, "rot": 0 }, { "p": 14.166, "c": 9, "r": 11, "rot": -0.9 }, { "p": 19.584, "c": 9, "r": 10, "rot": -0.9 }, { "p": 25, "c": 9, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 9, "r": 9, "rot": 0 }, { "p": 31.583, "c": 9, "r": 9, "rot": -0.55 }, { "p": 36.25, "c": 9, "r": 9, "rot": 0.55 }, { "p": 36.251, "c": 9, "r": 9, "rot": 0 }, { "p": 51.25, "c": 10, "r": 9, "rot": 1.4 }, { "p": 53.75, "c": 10, "r": 9, "rot": 0 }, { "p": 58.417, "c": 10, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 9, "rot": 0 }, { "p": 81.25, "c": 9, "r": 9, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 9, "rot": 0 }, { "p": 94.375, "c": 9, "r": 9, "rot": 0 }, { "p": 96.25, "c": 9, "r": 10, "rot": 0.9 }, { "p": 98.125, "c": 9, "r": 11, "rot": 0.9 }, { "p": 100, "c": 9, "r": 12, "rot": 0.9 }], "redAStart": 27.5, "redBStart": 53.75, "greenStart": 83.75 }, { "id": "T13", "path": [{ "p": 0, "c": 11, "r": 11, "rot": 0 }, { "p": 8.75, "c": 11, "r": 11, "rot": 0 }, { "p": 14.166, "c": 10, "r": 11, "rot": -1.4 }, { "p": 19.584, "c": 10, "r": 10, "rot": -0.9 }, { "p": 25, "c": 10, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 10, "r": 9, "rot": 0 }, { "p": 31.583, "c": 10, "r": 9, "rot": 0.55 }, { "p": 36.25, "c": 10, "r": 9, "rot": -0.55 }, { "p": 36.251, "c": 10, "r": 9, "rot": 0 }, { "p": 51.25, "c": 11, "r": 9, "rot": 1.4 }, { "p": 53.75, "c": 11, "r": 9, "rot": 0 }, { "p": 58.417, "c": 11, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 11, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 11, "r": 9, "rot": 0 }, { "p": 81.25, "c": 10, "r": 9, "rot": -1.4 }, { "p": 83.75, "c": 10, "r": 9, "rot": 0 }, { "p": 94.375, "c": 10, "r": 9, "rot": 0 }, { "p": 96.25, "c": 11, "r": 9, "rot": 1.4 }, { "p": 98.125, "c": 11, "r": 10, "rot": 0.9 }, { "p": 100, "c": 11, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 56.5625, "greenStart": 86.725 }, { "id": "T14", "path": [{ "p": 0, "c": 13, "r": 10, "rot": 0 }, { "p": 8.75, "c": 13, "r": 10, "rot": 0 }, { "p": 16.875, "c": 12, "r": 10, "rot": -1.4 }, { "p": 25, "c": 12, "r": 9, "rot": -0.9 }, { "p": 27.5, "c": 12, "r": 9, "rot": 0 }, { "p": 31.583, "c": 12, "r": 9, "rot": -0.55 }, { "p": 36.25, "c": 12, "r": 9, "rot": 0.55 }, { "p": 36.251, "c": 12, "r": 9, "rot": 0 }, { "p": 51.25, "c": 12, "r": 9, "rot": 0 }, { "p": 53.75, "c": 12, "r": 9, "rot": 0 }, { "p": 58.417, "c": 12, "r": 9, "rot": 0.35 }, { "p": 63.75, "c": 12, "r": 9, "rot": -0.35 }, { "p": 63.751, "c": 12, "r": 9, "rot": 0 }, { "p": 81.25, "c": 11, "r": 9, "rot": -1.4 }, { "p": 83.75, "c": 11, "r": 9, "rot": 0 }, { "p": 94.375, "c": 11, "r": 9, "rot": 0 }, { "p": 96.25, "c": 12, "r": 9, "rot": 1.4 }, { "p": 98.125, "c": 13, "r": 9, "rot": 1.4 }, { "p": 100, "c": 13, "r": 10, "rot": 0.9 }], "redAStart": 30, "redBStart": 56.5625, "greenStart": 90.125 }, { "id": "T15", "path": [{ "p": 0, "c": 6, "r": 11, "rot": 0 }, { "p": 8.75, "c": 6, "r": 11, "rot": 0 }, { "p": 14.166, "c": 7, "r": 11, "rot": 1.4 }, { "p": 19.584, "c": 8, "r": 11, "rot": 1.4 }, { "p": 25, "c": 8, "r": 10, "rot": -0.9 }, { "p": 27.5, "c": 8, "r": 10, "rot": 0 }, { "p": 31.583, "c": 8, "r": 10, "rot": 0.55 }, { "p": 36.25, "c": 8, "r": 10, "rot": -0.55 }, { "p": 36.251, "c": 8, "r": 10, "rot": 0 }, { "p": 51.25, "c": 8, "r": 10, "rot": 0 }, { "p": 53.75, "c": 8, "r": 10, "rot": 0 }, { "p": 58.417, "c": 8, "r": 10, "rot": 0.35 }, { "p": 63.75, "c": 8, "r": 10, "rot": -0.35 }, { "p": 63.751, "c": 8, "r": 10, "rot": 0 }, { "p": 81.25, "c": 8, "r": 10, "rot": 0 }, { "p": 83.75, "c": 8, "r": 10, "rot": 0 }, { "p": 94.375, "c": 8, "r": 10, "rot": 0 }, { "p": 96.25, "c": 7, "r": 10, "rot": -1.4 }, { "p": 98.125, "c": 6, "r": 10, "rot": -1.4 }, { "p": 100, "c": 6, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 60, "greenStart": 86.725 }, { "id": "T16", "path": [{ "p": 0, "c": 8, "r": 12, "rot": 0 }, { "p": 8.75, "c": 8, "r": 12, "rot": 0 }, { "p": 16.875, "c": 9, "r": 12, "rot": 1.4 }, { "p": 25, "c": 9, "r": 11, "rot": -0.9 }, { "p": 27.5, "c": 9, "r": 11, "rot": 0 }, { "p": 31.583, "c": 9, "r": 11, "rot": -0.55 }, { "p": 36.25, "c": 9, "r": 11, "rot": 0.55 }, { "p": 36.251, "c": 9, "r": 11, "rot": 0 }, { "p": 51.25, "c": 9, "r": 10, "rot": -0.9 }, { "p": 53.75, "c": 9, "r": 10, "rot": 0 }, { "p": 58.417, "c": 9, "r": 10, "rot": -0.35 }, { "p": 63.75, "c": 9, "r": 10, "rot": 0.35 }, { "p": 63.751, "c": 9, "r": 10, "rot": 0 }, { "p": 81.25, "c": 9, "r": 10, "rot": 0 }, { "p": 83.75, "c": 9, "r": 10, "rot": 0 }, { "p": 94.375, "c": 9, "r": 10, "rot": 0 }, { "p": 96.25, "c": 8, "r": 10, "rot": -1.4 }, { "p": 98.125, "c": 8, "r": 11, "rot": 0.9 }, { "p": 100, "c": 8, "r": 12, "rot": 0.9 }], "redAStart": 27.5, "redBStart": 60, "greenStart": 83.75 }, { "id": "T17", "path": [{ "p": 0, "c": 12, "r": 11, "rot": 0 }, { "p": 8.75, "c": 12, "r": 11, "rot": 0 }, { "p": 14.166, "c": 11, "r": 11, "rot": -1.4 }, { "p": 19.584, "c": 10, "r": 11, "rot": -1.4 }, { "p": 25, "c": 10, "r": 10, "rot": -0.9 }, { "p": 27.5, "c": 10, "r": 10, "rot": 0 }, { "p": 31.583, "c": 10, "r": 10, "rot": -0.55 }, { "p": 36.25, "c": 10, "r": 10, "rot": 0.55 }, { "p": 36.251, "c": 10, "r": 10, "rot": 0 }, { "p": 51.25, "c": 11, "r": 10, "rot": 1.4 }, { "p": 53.75, "c": 11, "r": 10, "rot": 0 }, { "p": 58.417, "c": 11, "r": 10, "rot": 0.35 }, { "p": 63.75, "c": 11, "r": 10, "rot": -0.35 }, { "p": 63.751, "c": 11, "r": 10, "rot": 0 }, { "p": 81.25, "c": 10, "r": 10, "rot": -1.4 }, { "p": 83.75, "c": 10, "r": 10, "rot": 0 }, { "p": 94.375, "c": 10, "r": 10, "rot": 0 }, { "p": 96.25, "c": 11, "r": 10, "rot": 1.4 }, { "p": 98.125, "c": 12, "r": 10, "rot": 1.4 }, { "p": 100, "c": 12, "r": 11, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 53.75, "greenStart": 86.725 }, { "id": "T18", "path": [{ "p": 0, "c": 10, "r": 13, "rot": 0 }, { "p": 8.75, "c": 10, "r": 13, "rot": 0 }, { "p": 16.875, "c": 9, "r": 13, "rot": -1.4 }, { "p": 25, "c": 9, "r": 12, "rot": -0.9 }, { "p": 27.5, "c": 9, "r": 12, "rot": 0 }, { "p": 31.583, "c": 9, "r": 12, "rot": 0.55 }, { "p": 36.25, "c": 9, "r": 12, "rot": -0.55 }, { "p": 36.251, "c": 9, "r": 12, "rot": 0 }, { "p": 43.75, "c": 10, "r": 12, "rot": 1.4 }, { "p": 51.25, "c": 10, "r": 11, "rot": -0.9 }, { "p": 53.75, "c": 10, "r": 11, "rot": 0 }, { "p": 58.417, "c": 10, "r": 11, "rot": 0.35 }, { "p": 63.75, "c": 10, "r": 11, "rot": -0.35 }, { "p": 63.751, "c": 10, "r": 11, "rot": 0 }, { "p": 81.25, "c": 9, "r": 11, "rot": -1.4 }, { "p": 83.75, "c": 9, "r": 11, "rot": 0 }, { "p": 94.375, "c": 9, "r": 11, "rot": 0 }, { "p": 96.25, "c": 10, "r": 11, "rot": 1.4 }, { "p": 98.125, "c": 10, "r": 12, "rot": 0.9 }, { "p": 100, "c": 10, "r": 13, "rot": 0.9 }], "redAStart": 32.8125, "redBStart": 53.75, "greenStart": 90.125 }];
+
+type Tile = typeof TILES[number];
+
+const TILE_LOOP = '32s';
+const TILE_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
+function keyframes(name: string, frames: Array<[number, number | string]>) {
+  return `@keyframes ${name} {\n${frames
+    .map(([p, value]) => `  ${Number(p.toFixed(3))}% { opacity: ${value}; }\n`)
+    .join('')}}\n`;
+}
+
+function offOnOff(name: string, start: number, end: number) {
+  return keyframes(name, [
+    [0, 0],
+    [Math.max(0, start - 0.001), 0],
+    [start, 1],
+    [end, 1],
+    [Math.min(100, end + 0.001), 0],
+    [100, 0],
+  ]);
+}
+
+function neutralStateOpacity(name: string, tile: Tile) {
+  return keyframes(name, [
+    [0, 1],
+    [Math.max(0, tile.redAStart - 0.001), 1],
+    [tile.redAStart, 0],
+    [36.25, 0],
+    [36.251, 1],
+
+    [Math.max(36.251, tile.redBStart - 0.001), 1],
+    [tile.redBStart, 0],
+    [63.75, 0],
+    [63.751, 1],
+
+    [Math.max(63.751, tile.greenStart - 0.001), 1],
+    [tile.greenStart, 0],
+    [94.375, 0],
+    [94.376, 1],
+    [100, 1],
+  ]);
+}
+
+function warmGlowOpacity(name: string, tile: Tile) {
+  return keyframes(name, [
+    [0, 0],
+    [8.75, 0],
+    [12, 0.10],
+    [25, 0.10],
+    [27.499, 0],
+    [Math.max(27.499, tile.redAStart - 0.001), 0],
+    [tile.redAStart, 0],
+    [36.25, 0],
+    [36.251, 0],
+    [40, 0.10],
+    [51.25, 0.10],
+    [53.749, 0],
+    [Math.max(53.749, tile.redBStart - 0.001), 0],
+    [tile.redBStart, 0],
+    [63.75, 0],
+    [63.751, 0],
+    [70, 0.10],
+    [81.25, 0.10],
+    [83.749, 0],
+    [Math.max(83.749, tile.greenStart - 0.001), 0],
+    [tile.greenStart, 0],
+    [94.375, 0],
+    [94.376, 0],
+    [100, 0],
+  ]);
+}
+
+function tileCoreOpacity(name: string, tile: Tile) {
+  return keyframes(name, [
+    [0, 0.78],
+    [8.75, 0.78],
+    [15, 0.92],
+    [25, 0.92],
+    [27.499, 0.92],
+    [Math.max(27.499, tile.redAStart - 0.001), 0.92],
+    [tile.redAStart, 0.94],
+    [36.25, 0.94],
+    [36.251, 0.92],
+    [40, 0.92],
+    [51.25, 0.92],
+    [53.749, 0.95],
+    [Math.max(53.749, tile.redBStart - 0.001), 0.95],
+    [tile.redBStart, 0.96],
+    [63.75, 0.96],
+    [63.751, 0.95],
+    [68, 0.95],
+    [81.25, 1],
+    [83.749, 1],
+    [Math.max(83.749, tile.greenStart - 0.001), 1],
+    [tile.greenStart, 1],
+    [94.375, 1],
+    [94.376, 1],
+    [100, 0.78],
+  ]);
+}
+
+function buildAnimationStyle() {
+  let css = `
+    .sa-tile-opacity-layer {
+      will-change: opacity;
+      backface-visibility: hidden;
+      transform-style: preserve-3d;
+      contain: paint;
+    }
+
+    .sa-tile-core {
+      will-change: opacity;
+      backface-visibility: hidden;
+      transform-style: preserve-3d;
+      contain: paint;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sa-tile-opacity-layer,
+      .sa-tile-core {
+        animation: none !important;
+      }
+    }
+  `;
+
+  TILES.forEach((tile) => {
+    css += `@keyframes move-${tile.id} {\n`;
+    tile.path.forEach((kp) => {
+      const left = (kp.c - 1) * 18;
+      const top = (kp.r - 1) * 18;
+      css += `  ${kp.p}% { transform: translate3d(${left}px, ${top}px, 0) rotate(${kp.rot}deg); }\n`;
+    });
+    css += `}\n`;
+
+    css += tileCoreOpacity(`tile-core-opacity-${tile.id}`, tile);
+    css += neutralStateOpacity(`tile-border-neutral-${tile.id}`, tile);
+    css += offOnOff(`tile-border-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-border-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-border-green-${tile.id}`, tile.greenStart, 94.375);
+
+    css += warmGlowOpacity(`tile-glow-warm-${tile.id}`, tile);
+    css += offOnOff(`tile-glow-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-glow-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-glow-green-${tile.id}`, tile.greenStart, 94.375);
+
+    css += neutralStateOpacity(`tile-terminal-neutral-${tile.id}`, tile);
+    css += offOnOff(`tile-terminal-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-terminal-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-terminal-green-${tile.id}`, tile.greenStart, 94.375);
+
+    css += neutralStateOpacity(`tile-trace-neutral-${tile.id}`, tile);
+    css += offOnOff(`tile-trace-red-a-${tile.id}`, tile.redAStart, 36.25);
+    css += offOnOff(`tile-trace-red-b-${tile.id}`, tile.redBStart, 63.75);
+    css += offOnOff(`tile-trace-green-${tile.id}`, tile.greenStart, 94.375);
+  });
+
+  css += `@keyframes state-label {\n`;
+  css += `  0% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  27.499% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  27.5% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  36.25% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  36.251% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  53.749% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  53.75% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  63.75% { content: "STATE: UNSTABLE"; color: rgba(255,75,62,0.8); }\n`;
+  css += `  63.751% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  83.749% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  83.75% { content: "STATE: STABLE"; color: rgba(110,231,168,0.8); }\n`;
+  css += `  94.375% { content: "STATE: STABLE"; color: rgba(110,231,168,0.8); }\n`;
+  css += `  94.376% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `  100% { content: "STATE: FORMING"; color: inherit; }\n`;
+  css += `}\n`;
+
+  return css;
+}
+
+export default function TileEntityForge() {
+  const tileFieldRef = useRef<HTMLDivElement | null>(null);
+  const animationStyle = useMemo(() => buildAnimationStyle(), []);
+
+  useTileFieldSuperAnimation(tileFieldRef, TILES);
+
+  return (
+    <div
+      className="relative w-full h-full flex flex-col items-center justify-center rounded-[32px] overflow-hidden chamber-panel py-[40px] md:py-[60px]"
+      style={{
+        background: 'linear-gradient(180deg, rgba(13,16,20,0.98), rgba(5,6,8,0.99))',
+        border: '1px solid rgba(255,255,255,0.11)',
+        boxShadow: '0 36px 110px rgba(0,0,0,0.58), inset 0 1px 0 rgba(255,255,255,0.045)'
+      }}
+      aria-label="Self-assembling tile entity with nullixforge principle and computation trace, where learned constraints are pinned inside the trace as unstable formations become stable structure"
+    >
+      <style dangerouslySetInnerHTML={{ __html: animationStyle }} />
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        .chamber-panel { min-height: 740px !important; }
+        @media (min-width: 768px) {
+          .chamber-panel { min-height: 800px !important; }
+        }
+        @media (min-width: 1024px) {
+          .chamber-panel { min-height: 900px !important; }
+        }
+      `}} />
+
+      <div
+        className="absolute bottom-[-80px] left-1/2 w-[360px] h-[180px] -translate-x-1/2 pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, rgba(255,106,42,0.18), rgba(223,165,91,0.055), transparent 68%)',
+          opacity: 0.7
+        }}
+      />
+
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `
+            linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px)
+          `,
+          backgroundSize: '28px 28px',
+          opacity: 0.38
+        }}
+      />
+
+      <div className="absolute top-[28px] left-[32px] font-mono text-[10px] tracking-[0.16em] text-[rgba(244,240,232,0.58)] uppercase">
+        LAB
+      </div>
+
+      <div className="absolute top-[28px] right-[32px] font-mono text-[10px] tracking-[0.16em] text-[rgba(244,240,232,0.58)] uppercase after:content-['STATE:_FORMING'] after:animate-[state-label_32s_cubic-bezier(0.16,1,0.3,1)_infinite] motion-reduce:after:content-['STATE:_STABLE'] motion-reduce:after:animate-none" />
+
+      <div className="absolute bottom-[28px] right-[32px] font-mono text-[10px] tracking-[0.16em] text-[rgba(244,240,232,0.58)] uppercase text-right">
+        TILE FIELD [18x18]
+        <br />
+        <span className="text-[8px] opacity-70">CONTROLLED CELLULAR FIELD</span>
+      </div>
+
+      <OverlayLayers />
+
+      <div
+        ref={tileFieldRef}
+        data-sa-tile-field
+        className="relative rounded-[20px] scale-[0.74] min-[390px]:scale-[0.88] min-[520px]:scale-100"
+        style={{
+          order: 2,
+          width: '324px',
+          height: '324px',
+          background: 'linear-gradient(180deg, rgba(7,9,12,0.94), rgba(2,3,4,0.96))',
+          border: '1px solid rgba(244,240,232,0.075)',
+          boxShadow: '0 28px 80px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.04)',
+          backgroundImage: `
+            linear-gradient(rgba(244,240,232,0.028) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(244,240,232,0.028) 1px, transparent 1px)
+          `,
+          backgroundSize: '18px 18px'
+        }}
+      >
+        <div className="absolute inset-0 pointer-events-none">
+          {Array.from({ length: 18 }).map((_, i) => (
+            <React.Fragment key={`tick-${i}`}>
+              <div
+                className="absolute top-[-3px]"
+                style={{
+                  left: `${i * 18 + 8.5}px`,
+                  width: '1px',
+                  height: '3px',
+                  background: i % 6 === 0 ? 'rgba(223,165,91,0.18)' : 'rgba(244,240,232,0.12)'
+                }}
+              />
+              <div
+                className="absolute left-[-3px]"
+                style={{
+                  top: `${i * 18 + 8.5}px`,
+                  width: '3px',
+                  height: '1px',
+                  background: i % 6 === 0 ? 'rgba(223,165,91,0.18)' : 'rgba(244,240,232,0.12)'
+                }}
+              />
+            </React.Fragment>
+          ))}
+
+          <div className="absolute top-[-16px] left-[-2px] font-mono text-[8px] text-[rgba(244,240,232,0.26)]">00</div>
+          <div className="absolute top-[-16px] right-[-4px] font-mono text-[8px] text-[rgba(244,240,232,0.26)]">18</div>
+          <div className="absolute bottom-[-16px] left-[-4px] font-mono text-[8px] text-[rgba(244,240,232,0.26)]">18</div>
+
+          {TILES.map((tile) => (
+            <div
+              key={tile.id}
+              data-sa-tile
+              data-sa-tile-motion={tile.id}
+              className="absolute"
+              style={{
+                width: '18px',
+                height: '18px',
+                transformOrigin: 'center center',
+                animation: `move-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                willChange: 'transform',
+              }}
+            >
+              <div
+                className="sa-tile-core absolute left-[2px] top-[2px] w-[14px] h-[14px] rounded-[2px] overflow-hidden"
+                style={{
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.000) 38%), linear-gradient(135deg, #161B22 0%, #0B0E13 52%, #050607 100%)',
+                  boxShadow: '0 4px 10px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.055), inset 0 -1px 0 rgba(0,0,0,0.38)',
+                  animation: `tile-core-opacity-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`
+                }}
+              >
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(255,106,42,0.1), transparent 68%)',
+                    animation: `tile-glow-warm-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(255,75,62,0.06), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(255,75,62,0.16), 0 0 8px rgba(255,75,62,0.08)',
+                    animation: `tile-glow-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(255,75,62,0.04), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(255,75,62,0.12), 0 0 6px rgba(255,75,62,0.06)',
+                    animation: `tile-glow-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(110,231,168,0.07), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(110,231,168,0.18), 0 0 10px rgba(110,231,168,0.10)',
+                    animation: `tile-glow-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(244,240,232,0.095)',
+                    animation: `tile-border-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(255,75,62,0.12)',
+                    animation: `tile-border-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(255,75,62,0.10)',
+                    animation: `tile-border-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute inset-[0px] rounded-[2px] pointer-events-none"
+                  style={{
+                    border: '1px solid rgba(110,231,168,0.14)',
+                    animation: `tile-border-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(223,165,91,0.36)',
+                    animation: `tile-terminal-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.6)',
+                    animation: `tile-terminal-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.5)',
+                    animation: `tile-terminal-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute right-[3px] bottom-[3px] w-[2px] h-[2px] rounded-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(110,231,168,0.7)',
+                    animation: `tile-terminal-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(244,240,232,0.12)',
+                    animation: `tile-trace-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(244,240,232,0.12)',
+                    animation: `tile-trace-neutral-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-a-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(255,75,62,0.3)',
+                    animation: `tile-trace-red-b-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[7px] h-[1px] pointer-events-none"
+                  style={{
+                    background: 'rgba(110,231,168,0.3)',
+                    animation: `tile-trace-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="sa-tile-opacity-layer absolute left-[3px] top-[4px] w-[1px] h-[6px] pointer-events-none"
+                  style={{
+                    background: 'rgba(110,231,168,0.3)',
+                    animation: `tile-trace-green-${tile.id} ${TILE_LOOP} ${TILE_EASE} infinite`,
+                  }}
+                />
+
+                <div
+                  className="absolute inset-[0px] rounded-[1px] opacity-0 motion-reduce:opacity-100 pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 42%, rgba(110,231,168,0.07), transparent 68%)',
+                    boxShadow: 'inset 0 0 0 1px rgba(110,231,168,0.18), 0 0 10px rgba(110,231,168,0.10)'
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}"
+src/pages/Home.tsx هذا المحتوى الحالي لهذا الملف : "import { useEffect, useRef, useState, type FormEvent } from 'react';
+import TileEntityForge from '../components/TileEntityForge';
+import { prefersReducedMotion, useRevealSuperAnimation } from '../superanimation';
+
+interface HomeProps {
+  initialService?: string;
+  shouldScrollToForm?: boolean;
+}
+
+const proofProjects = [
+  {
+    title: 'CareGrid Clinic OS',
+    cat: 'Healthcare Operating Systems',
+    result: 'A clinic chain became one silent operating layer.',
+    tags: ['Healthcare OS', 'Patient Timeline', 'Audit Spine', 'Queue Intelligence'],
+    num: '01',
+  },
+  {
+    title: 'LedgerAxis Commerce Core',
+    cat: 'Commerce Operating Systems',
+    result: 'Fragmented sales, stock, invoices, and payments became one accountable commerce layer.',
+    tags: ['Commerce Core', 'Inventory Flow', 'Payment Ledger', 'Operational Audit'],
+    num: '02',
+  },
+  {
+    title: 'NerveOps AI Control Plane',
+    cat: 'AI Control Systems',
+    result: 'Scattered operational signals became structured decisions.',
+    tags: ['AI Layer', 'Signal Intelligence', 'Decision Console', 'Anomaly Detection'],
+    num: '03',
+  },
+];
+
+export function Home({ initialService, shouldScrollToForm }: HomeProps) {
+  const homeRef = useRef<HTMLDivElement | null>(null);
+
+  useRevealSuperAnimation(homeRef, [initialService, shouldScrollToForm]);
+
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    architecture: initialService || 'Web System',
+    message: '',
+  });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSent, setIsSent] = useState(false);
+
+  useEffect(() => {
+    if (initialService) {
+      setFormData((prev) => ({ ...prev, architecture: initialService }));
+    }
+  }, [initialService]);
+
+  useEffect(() => {
+    if (!shouldScrollToForm) return;
+
+    const formEl = document.getElementById('contact-form-section');
+
+    if (!formEl) return;
+
+    requestAnimationFrame(() => {
+      formEl.scrollIntoView({
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        block: 'start',
+      });
+    });
+  }, [shouldScrollToForm]);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.name || !formData.email || !formData.message) return;
+
+    setIsSubmitting(true);
+
+    window.setTimeout(() => {
+      setIsSubmitting(false);
+      setIsSent(true);
+
+      const subject = encodeURIComponent(`System Inquiry from ${formData.name}`);
+      const body = encodeURIComponent(
+        `Identifier: ${formData.name}\nComms: ${formData.email}\nArchitecture: ${formData.architecture}\n\nSignal:\n${formData.message}`,
+      );
+
+      window.open(`mailto:contact@nullixforge.com?subject=${subject}&body=${body}`, '_top');
+
+      window.setTimeout(() => {
+        setIsSent(false);
+        setFormData({
+          name: '',
+          email: '',
+          architecture: 'Web System',
+          message: '',
+        });
+      }, 3000);
+    }, 800);
+  };
+
+  return (
+    <div
+      ref={homeRef}
+      className="relative pt-24 pb-12 w-full max-w-7xl mx-auto px-6 md:px-12 z-10"
+      data-scene="home-void"
+      data-sa-page-shell
+    >
+      {/* 1. HERO SECTION */}
+      <section
+        data-sa-promote
+        data-sa-will-change="opacity, transform"
+        className="min-h-[92vh] flex flex-col md:flex-row items-center pt-12 md:pt-0 mb-32 relative"
+      >
+        <div className="absolute top-1/2 left-2/3 -translate-y-1/2 w-[500px] h-[500px] opacity-10 blur-[100px] bg-molten-gold rounded-full pointer-events-none" />
+        <div className="absolute -bottom-48 -left-48 w-96 h-96 opacity-20 blur-[120px] bg-ember rounded-full pointer-events-none" />
+
+        <div className="md:w-7/12 relative z-10 pr-0 md:pr-12">
+          <h1
+            data-sa-reveal
+            data-sa-reveal-y="22"
+            data-sa-reveal-delay="0"
+            data-sa-reveal-duration="720"
+            className="text-[64px] font-bold leading-[64px] tracking-[-0.05em] mb-8 text-text-main font-sans"
+          >
+            From nothing, we forge what feels natural.
+          </h1>
+
+          <p
+            data-sa-reveal
+            data-sa-reveal-y="18"
+            data-sa-reveal-delay="90"
+            data-sa-reveal-duration="760"
+            className="max-w-[480px] text-text-muted leading-relaxed text-sm mb-10"
+          >
+            Every system we build begins at zero — no templates, no borrowed complexity, no noise. We engineer Web platforms, Applications, and AI solutions from the ground up, shaped entirely around what your business needs to run.
+            <br />
+            <br />
+            That's our starting point. Below, you'll see how we think, what we've built, and what becomes possible.
+          </p>
+        </div>
+
+        {/* The Forge Core Visual - Anchored Foundry Core */}
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="16"
+          data-sa-reveal-delay="160"
+          data-sa-reveal-duration="820"
+          className="md:w-5/12 w-full mt-16 md:mt-0 relative flex items-center justify-center"
+        >
+          <TileEntityForge />
+        </div>
+      </section>
+
+      {/* 2. QUICK PROOF SECTION */}
+      <section className="mb-40" data-sa-promote>
+        <div className="mb-16">
+          <h2
+            data-sa-reveal
+            data-sa-reveal-y="18"
+            data-sa-reveal-delay="0"
+            className="text-3xl md:text-4xl font-heading font-medium mb-4"
+          >
+            Proof, before detail.
+          </h2>
+
+          <p
+            data-sa-reveal
+            data-sa-reveal-y="14"
+            data-sa-reveal-delay="70"
+            className="text-text-muted text-lg"
+          >
+            Three selected builds. Enough to show the system. Not enough to slow the signal.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6" data-sa-stagger-list>
+          {proofProjects.map((project, i) => (
+            <div
+              key={project.num}
+              data-sa-reveal
+              data-sa-reveal-y="22"
+              data-sa-reveal-delay={String(i * 90)}
+              data-sa-reveal-duration="760"
+              className="group p-8 rounded-[24px] bg-[linear-gradient(180deg,rgba(18,20,25,0.96),rgba(8,9,11,0.98))] border border-white/10 hover:border-ember/30 transition-all cursor-pointer shadow-[0_28px_80px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.04)] relative overflow-hidden"
+            >
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-molten-gold/[0.22] group-hover:bg-ember/[0.48] transition-colors duration-500" />
+
+              <div className="flex justify-between items-start mb-6">
+                <div className="text-[10px] font-mono text-[#A9A39A] uppercase tracking-[0.2em]">
+                  {project.num} // {project.cat}
+                </div>
+
+                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-ember transition-colors" />
+              </div>
+
+              <h3 className="text-xl font-bold mb-4">{project.title}</h3>
+
+              <p className="text-[#A9A39A] text-[13px] leading-relaxed mb-8">
+                {project.result}
+              </p>
+
+              <div className="flex flex-wrap gap-2 mt-auto">
+                {project.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="text-[9px] font-mono uppercase bg-[#030304]/80 border border-white/5 px-2.5 py-1.5 rounded text-[#A9A39A]"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 3. PITCH SECTION */}
+      <section className="mb-40 relative" data-sa-promote>
+        <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-3/4 h-20 bg-ember/10 blur-2xl pointer-events-none" />
+
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="20"
+          data-sa-reveal-duration="800"
+          className="rounded-[32px] p-8 md:p-16 relative flex flex-col md:flex-row gap-12 border border-white/[0.12] bg-[linear-gradient(135deg,rgba(18,19,22,0.98),rgba(7,8,10,1))] shadow-[0_40px_100px_rgba(0,0,0,0.6)]"
+        >
+          <div className="absolute left-0 top-1/4 bottom-1/4 w-[2px] bg-ember/60" />
+
+          <div className="md:w-1/4" />
+
+          <div className="md:w-3/4">
+            <h2 className="text-xl md:text-2xl leading-relaxed text-text-main font-bold tracking-tight">
+              Everything we forge is built for one purpose — yours. A system engineered from zero, designed to run, to grow, and to hold your audience exactly where they should be.
+              <br />
+              <br />
+              <span className="text-[#A9A39A]">
+                You may know exactly what you need. You may not yet. Either way — we do. That's what the forge is for.
+              </span>
+            </h2>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. CONTACT SECTION */}
+      <section id="contact-form-section" className="mb-20" data-sa-promote>
+        <div
+          data-sa-reveal
+          data-sa-reveal-y="18"
+          data-sa-reveal-duration="820"
+          className="flex flex-col md:flex-row gap-12 max-w-5xl mx-auto rounded-[32px] p-8 md:p-12 bg-[#0A0B0E]/98 border border-white/[0.12] shadow-[0_40px_120px_rgba(0,0,0,0.58)]"
+        >
+          <div className="md:w-[40%] flex flex-col">
+            <h2 className="text-3xl md:text-4xl font-bold tracking-[-0.05em] mb-4">
+              Start from zero.
+            </h2>
+
+            <p className="text-sm text-[#A9A39A] mb-12">
+              Tell us what needs to exist. We'll shape the system around it.
+            </p>
+
+            <div className="mt-auto bg-[#030304]/80 border border-white/5 p-6 rounded-2xl flex flex-col gap-6 font-mono text-[10px] tracking-widest">
+              <div className="flex flex-col">
+                <span className="text-text-faint uppercase mb-2">Direct Channel</span>
+
+                <a
+                  href="mailto:contact@nullixforge.com"
+                  className="text-text-main hover:text-ember transition-colors"
+                >
+                  contact@nullixforge.com
+                </a>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-text-faint uppercase mb-2">System Node</span>
+                <span className="text-text-main">nullixforge.com</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="md:w-[60%] border-t md:border-t-0 md:border-l border-white/5 pt-8 md:pt-0 md:pl-12 relative overflow-hidden">
+            {isSent ? (
+              <div
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                className="absolute inset-0 flex flex-col items-center justify-center bg-[#0A0B0E]/98 z-20"
+                style={{ animation: 'fade-in 0.4s ease-out' }}
+              >
+                <div className="w-12 h-12 rounded-full border border-ember/30 bg-ember/10 flex items-center justify-center text-ember mb-4">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+
+                <h3 className="text-xl font-bold mb-2">Signal Transmitted</h3>
+
+                <p className="text-text-muted text-sm px-8 text-center">
+                  Your message has been encoded and sent. We'll open a channel with you shortly.
+                </p>
+              </div>
+            ) : null}
+
+            <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+              <div className="flex flex-col gap-2 relative">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Name / Identifier
+                </label>
+
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main transition-colors text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Email / Comms
+                </label>
+
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main transition-colors text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Project Architecture
+                </label>
+
+                <select
+                  value={formData.architecture}
+                  onChange={(e) => setFormData({ ...formData, architecture: e.target.value })}
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main appearance-none transition-colors text-sm disabled:opacity-50"
+                >
+                  <option>Web System</option>
+                  <option>Application</option>
+                  <option>AI Solution</option>
+                  <option>Not sure yet</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-2 mb-2">
+                <label className="font-mono text-[9px] uppercase text-text-faint tracking-[0.2em] pl-1">
+                  Message / Signal
+                </label>
+
+                <textarea
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  required
+                  disabled={isSubmitting}
+                  className="bg-[#030304]/88 border border-white/[0.12] rounded-xl px-4 py-3.5 focus:outline-none focus:border-ember/45 text-text-main min-h-[120px] resize-none transition-colors text-sm disabled:opacity-50"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                data-sa-promote
+                data-sa-will-change="opacity, transform"
+                className="relative overflow-hidden bg-text-main border border-text-main rounded-xl px-8 py-3.5 text-[11px] uppercase tracking-widest font-bold text-black hover:bg-ember hover:border-ember transition-all duration-300 w-full disabled:opacity-80 disabled:cursor-not-allowed group"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-3 w-3 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Processing
+                  </span>
+                ) : (
+                  'Send'
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}"
+src/superanimation/featureSupport.ts هذا المحتوى الحالي لهذا الملف : "import type { GraphicsPerformanceTier } from '../rendering/renderingTypes';
+
+export const canUseDOM = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+type NavigatorConnectionLike = {
+    saveData?: boolean;
+};
+
+type NavigatorWithOptionalHardware = Navigator & {
+    deviceMemory?: number;
+    connection?: NavigatorConnectionLike;
+    mozConnection?: NavigatorConnectionLike;
+    webkitConnection?: NavigatorConnectionLike;
+};
+
+export function getTimelineNow(): number {
+    if (!canUseDOM) return 0;
+    return document.timeline.currentTime ?? performance.now();
+}
+
+export function supportsWAAPI(): boolean {
+    return canUseDOM && typeof Element !== 'undefined' && 'animate' in Element.prototype;
+}
+
+export function supportsRegisterProperty(): boolean {
+    return canUseDOM && 'CSS' in window && typeof CSS.registerProperty === 'function';
+}
+
+export function supportsLinearEasing(): boolean {
+    return canUseDOM && 'CSS' in window && CSS.supports?.('animation-timing-function', 'linear(0, 1)') === true;
+}
+
+export function supportsCanvas2D(): boolean {
+    if (!canUseDOM) return false;
+
+    try {
+        const canvas = document.createElement('canvas');
+        return typeof canvas.getContext === 'function' && canvas.getContext('2d') !== null;
+    } catch {
+        return false;
+    }
+}
+
+export function supportsOffscreenCanvas2D(): boolean {
+    if (!canUseDOM || typeof OffscreenCanvas === 'undefined') return false;
+
+    try {
+        const canvas = new OffscreenCanvas(1, 1);
+        return canvas.getContext('2d') !== null;
+    } catch {
+        return false;
+    }
+}
+
+export function getCanvas2DContext(
+    canvas: HTMLCanvasElement,
+): CanvasRenderingContext2D | null {
+    try {
+        return canvas.getContext('2d', {
+            alpha: true,
+            desynchronized: true,
+        } as CanvasRenderingContext2DSettings);
+    } catch {
+        try {
+            return canvas.getContext('2d');
+        } catch {
+            return null;
+        }
+    }
+}
+
+export function getNavigatorHardwareConcurrency(): number {
+    if (!canUseDOM) return 4;
+
+    const cores = navigator.hardwareConcurrency;
+
+    return Number.isFinite(cores) && cores > 0 ? cores : 4;
+}
+
+export function getNavigatorDeviceMemory(): number | null {
+    if (!canUseDOM) return null;
+
+    const nav = navigator as NavigatorWithOptionalHardware;
+    const memory = nav.deviceMemory;
+
+    return Number.isFinite(memory) && memory ? memory : null;
+}
+
+export function getNavigatorSaveData(): boolean {
+    if (!canUseDOM) return false;
+
+    const nav = navigator as NavigatorWithOptionalHardware;
+    const connection = nav.connection ?? nav.mozConnection ?? nav.webkitConnection;
+
+    return connection?.saveData === true;
+}
+
+export function getCappedDevicePixelRatio(tier: GraphicsPerformanceTier = 'medium'): number {
+    if (!canUseDOM) return 1;
+
+    const rawDpr = window.devicePixelRatio || 1;
+
+    if (!Number.isFinite(rawDpr) || rawDpr <= 0) return 1;
+
+    if (tier === 'low') return Math.min(rawDpr, 1);
+    if (tier === 'medium') return Math.min(rawDpr, 1.5);
+
+    return Math.min(rawDpr, 2);
+}
+
+export function prefersReducedMotion(): boolean {
+    return canUseDOM && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+export function parseMs(value: string | number | undefined | null, fallback = 0): number {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (!value) return fallback;
+
+    const text = String(value).trim();
+
+    if (text.endsWith('ms')) {
+        const n = Number.parseFloat(text);
+        return Number.isFinite(n) ? n : fallback;
+    }
+
+    if (text.endsWith('s')) {
+        const n = Number.parseFloat(text);
+        return Number.isFinite(n) ? n * 1000 : fallback;
+    }
+
+    const n = Number.parseFloat(text);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+export function safeCancelAnimation(animation: Animation | null | undefined): void {
+    try {
+        animation?.cancel();
+    } catch {
+        // Browser animation objects may throw if already detached.
+    }
+}"
+src/superanimation/types.ts هذا المحتوى الحالي لهذا الملف : "export type SuperAnimationCleanup = () => void;
+
+export type MotionAxis = 'x' | 'y' | 'scale' | 'opacity';
+
+export type NumericMotionState = {
+    position: number;
+    velocity: number;
+};
+
+export type NumericSolver = (elapsedMs: number) => NumericMotionState;
+
+export type SpringParams = {
+    stiffness?: number;
+    damping?: number;
+    mass?: number;
+    duration?: number;
+    precisionMs?: number;
+};
+
+export type BakedScalarMotion = {
+    duration: number;
+    easing: string;
+    solver: NumericSolver;
+    points: Array<{
+        timeMs: number;
+        position: number;
+        velocity: number;
+        progress: number;
+    }>;
+};
+
+export type CompositorAnimationHandle = {
+    animation: Animation | null;
+    cancel: () => void;
+    finish: () => void;
+};
+
+export type CompositorAnimateOptions = KeyframeAnimationOptions & {
+    willChange?: string;
+    cleanupWillChange?: boolean;
+};
+
+export type PrimeHarmonicLayer = {
+    property: string;
+    duration: number;
+    amplitude?: number;
+    phase?: number;
+    resolution?: number;
+};" 
+src/index.css هذا المحتوى الحالي لهذا الملف : "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-void: #030304;
+  --color-deep-black: #060708;
+  --color-graphite: #0b0d10;
+  --color-obsidian: #111318;
+  --color-panel-dark: rgba(17, 19, 24, 0.72);
+
+  --color-border-soft: rgba(255, 255, 255, 0.08);
+  --color-border-warm: rgba(255, 126, 57, 0.18);
+  --color-border-gold: rgba(223, 165, 91, 0.14);
+
+  --color-text-main: #f4f0e8;
+  --color-text-muted: #a9a39a;
+  --color-text-faint: #6f6a63;
+
+  --color-ember: #ff6a2a;
+  --color-ember-deep: #a63a16;
+  --color-molten-gold: #dfa55b;
+  --color-heated-ivory: #fff1d2;
+
+  --color-system-line: rgba(223, 165, 91, 0.16);
+  --color-system-dot: rgba(255, 106, 42, 0.55);
+  --color-system-glow: rgba(255, 241, 210, 0.12);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-heading: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', monospace;
+}
+
+:root {
+  --void-black: #030304;
+  --deep-black: #060708;
+  --graphite: #0b0d10;
+  --obsidian: #111318;
+  --panel-dark: rgba(17, 19, 24, 0.72);
+
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --border-warm: rgba(255, 126, 57, 0.18);
+  --border-gold: rgba(223, 165, 91, 0.14);
+
+  --text-main: #f4f0e8;
+  --text-muted: #a9a39a;
+  --text-faint: #6f6a63;
+
+  --ember: #ff6a2a;
+  --ember-deep: #a63a16;
+  --molten-gold: #dfa55b;
+  --heated-ivory: #fff1d2;
+
+  --system-line: rgba(223, 165, 91, 0.16);
+  --system-dot: rgba(255, 106, 42, 0.55);
+  --system-glow: rgba(255, 241, 210, 0.12);
+}
+
+body {
+  background-color: var(--void-black);
+  color: var(--text-main);
+  background-image: linear-gradient(180deg, #030304 0%, #08090b 45%, #030304 100%);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: var(--ember-deep);
+  color: var(--text-main);
+}
+
+/* Animations */
+@keyframes twinkle {
+
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes drift {
+  0% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbit-reverse {
+  0% {
+    transform: rotate(360deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes float-subtle {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes spin-slow {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes scan-line {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+
+  10%,
+  90% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(500px);
+    opacity: 0;
+  }
+}
+
+@keyframes lock-rotate {
+
+  0%,
+  15% {
+    transform: rotate(0deg);
+  }
+
+  25%,
+  65% {
+    transform: rotate(90deg);
+  }
+
+  75%,
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+@keyframes seed-breathe {
+
+  0%,
+  100% {
+    transform: scale(1) skewX(0deg) skewY(0deg);
+    border-radius: 40% 60% 60% 40% / 50% 50% 50% 50%;
+  }
+
+  25% {
+    transform: scale(0.98, 1.02) skewX(0.5deg);
+    border-radius: 45% 55% 58% 42% / 48% 52% 48% 52%;
+  }
+
+  50% {
+    transform: scale(1.02, 0.99) skewY(-0.5deg);
+    border-radius: 42% 58% 55% 45% / 52% 48% 52% 48%;
+  }
+
+  75% {
+    transform: scale(0.99, 1.01) skewX(-0.5deg);
+    border-radius: 48% 52% 62% 38% / 50% 50% 50% 50%;
+  }
+}
+
+@keyframes energy-shift {
+
+  0%,
+  100% {
+    transform: translate(-10%, -10%);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: translate(10%, 10%) scale(1.1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+    border-width: 1px;
+  }
+
+  50% {
+    opacity: 1;
+    border-color: rgba(255, 106, 42, 0.15);
+    border-width: 2px;
+  }
+
+  100% {
+    transform: scale(1.2);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+@keyframes pulse-slow {
+
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* ============================================================
+   NullixForge SuperAnimation Layer
+   Goal: compositor-safe runtime without changing visual design.
+   ============================================================ */
+
+@property --sa-noise-1 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-2 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-3 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --sa-noise-4 {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+:root {
+  --sa-ready: 1;
+}
+
+html[data-superanimation='ready'] {
+  text-rendering: geometricPrecision;
+}
+
+[data-sa-promote],
+[data-sa-reveal],
+[data-sa-tile],
+[data-sa-drift],
+[data-sa-twinkle] {
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+[data-sa-drift] {
+  will-change: transform;
+}
+
+[data-sa-twinkle] {
+  will-change: opacity;
+}
+
+[data-sa-page-shell] {
+  isolation: isolate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  [data-sa-drift],
+  [data-sa-twinkle],
+  [data-sa-reveal],
+  [data-sa-tile] {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ============================================================
+   NullixForge Canvas Rendering Layer
+   Task 1: Starfield Canvas 2D
+   ============================================================ */
+
+.sa-canvas-layer {
+  contain: strict;
+  isolation: isolate;
+  overflow: hidden;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.sa-canvas-surface {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  contain: strict;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+[data-sa-canvas-starfield] {
+  width: 100%;
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .sa-canvas-layer,
+  .sa-canvas-surface {
+    transform: none;
+  }
+}"
+
+
+"

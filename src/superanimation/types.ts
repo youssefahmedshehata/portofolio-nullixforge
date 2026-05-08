@@ -47,3 +47,25 @@ export type PrimeHarmonicLayer = {
     phase?: number;
     resolution?: number;
 };
+
+export type TileForgeMotionPoint = {
+    p: number;
+    c: number;
+    r: number;
+    rot: number;
+};
+
+export type TileForgeTile = {
+    id: string;
+    path: readonly TileForgeMotionPoint[];
+    redAStart: number;
+    redBStart: number;
+    greenStart: number;
+};
+
+export type WebGLRendererState = {
+    contextLost: boolean;
+    fallbackActive: boolean;
+    dpr: number;
+    frame: number;
+};

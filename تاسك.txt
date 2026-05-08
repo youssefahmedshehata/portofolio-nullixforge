@@ -1,273 +1,54 @@
-هذه الخطه التي نسير عليها بدقه 100% و معها شجره الملفات الحاليه الموجوده في المشروع   : "الإجابة المباشرة: **لا، مش هنطبق SuperAnimation على كل ملف في المشروع**.
-هنطبقها فقط على الملفات التي تشارك في **الرندر، الحركة، الطبقات البصرية، الـ scroll/reveal، وتوليد بيانات الحركة**. باقي الملفات لا يجب لمسها عشان ما نغيّرش شكل الموقع ولا ندخل مخاطر غير لازمة.
+هذه الخطه التي نسير عليها بدقه 100% و معها شجره الملفات الحاليه الموجوده في المشروع   : "
 
-المعماريّة نفسها مبنية على إن **GSAP يكون مسؤول عن التخطيط والتنسيق**، و**Silent Compositor يكون مسؤول عن تنفيذ الحركة على GPU عبر WAAPI / transform / opacity / Shadow State / linear()**؛ فالتطبيق الصحيح يكون على طبقة الواجهة والحركة فقط، مش على المشروع كله عشوائيًا. 
 
-## القائمة الكاملة للملفات التي سنطبق عليها SuperAnimation
 
-### 1. ملفات أساسية لازم تتعدل
-
-هذه هي الملفات الأساسية التي غالبًا فيها الرندر والحركة الفعلية:
-
-```txt
-src/components/Starfield.tsx
-src/components/OverlayLayers.tsx
-src/components/TileEntityForge.tsx
-src/components/Navigation.tsx
-src/components/Footer.tsx
-src/pages/Home.tsx
-src/pages/Work.tsx
-src/pages/Approach.tsx
-src/App.tsx
-src/index.css
-src/main.tsx
-```
-
-### وظيفة كل ملف
-
-| الملف                                | نوع تطبيق SuperAnimation                                      |
-| ------------------------------------ | ------------------------------------------------------------- |
-| `src/components/Starfield.tsx`       | Silent Compositor / Procedural Animator / Prime Harmonics     |
-| `src/components/OverlayLayers.tsx`   | GPU-only layers: `transform`, `opacity`, CSS variables        |
-| `src/components/TileEntityForge.tsx` | أهم ملف؛ تحويل حركة الـ tiles إلى compositor-safe animations  |
-| `src/components/Navigation.tsx`      | GSAP خفيف للتنسيق، WAAPI للحركة إن وُجدت                      |
-| `src/components/Footer.tsx`          | reveal/stagger بدون تغيير الشكل                               |
-| `src/pages/Home.tsx`                 | orchestration للـ hero والـ scroll sections                   |
-| `src/pages/Work.tsx`                 | reveal/tiles/work cards transitions                           |
-| `src/pages/Approach.tsx`             | section reveals / timeline / stagger                          |
-| `src/App.tsx`                        | تركيب طبقة SuperAnimation على مستوى التطبيق                   |
-| `src/index.css`                      | أهم CSS layer: `will-change`, CSS vars, compositor-only rules |
-| `src/main.tsx`                       | bootstrap للـ engine، feature detection، global init          |
-
----
-
-## 2. ملفات البيانات التي لا نغير شكلها لكن نستخدمها
-
-هذه لا نغيّر محتواها البصري إلا لو كانت تحتوي على مسارات حركة runtime محتاجة تتحول لـ precomputed compositor payloads:
-
-```txt
-src/components/generated_tiles.json
-src/components/new_tiles.json
-paths.json
-```
-
-القاعدة هنا:
-
-```txt
-لا نغيّر positions / sizes / colors / order
-نستخدم نفس البيانات
-لكن نمنع حساب الحركة الثقيلة أثناء runtime
-```
-
-يعني لو `TileEntityForge.tsx` بيقرأ `generated_tiles.json` ويرسم tiles، هنخلي نفس الشكل بالضبط، لكن نحرك/نظهر العناصر بطبقة SuperAnimation بدل React re-render أو JS scroll calculations.
-
----
-
-## 3. ملفات توليد المسارات التي قد تتعدل لو الحركة متولدة مسبقًا
-
-هذه الملفات مهمة لو هي المسؤولة عن توليد paths أو tiles أو timeline data:
-
-```txt
-generate_paths.ts
-generate_new_paths.ts
-generate_new.cjs
-app/applet/generate_paths.ts
-app/applet/generate_new_paths.ts
-app/applet/generate_new.cjs
-```
-
-التعديل هنا لا يكون لتغيير الشكل، بل لتحويل الحسابات من:
-
-```txt
-runtime calculation
-```
-
-إلى:
-
-```txt
-build-time precomputation
-```
-
-يعني بدل ما المتصفح يحسب مسارات أو قيم حركة أثناء فتح الموقع، نخزن نفس النتائج مسبقًا، ثم نمررها لـ compositor.
-
----
-
-## 4. ملفات قد تتغير فقط لو هنضيف GSAP أو ملفات engine جديدة
-
-```txt
-package.json
-package-lock.json
-vite.config.ts
-tsconfig.json
-```
-
-### متى تتعدل؟
-
-| الملف               |             هل يتعدل؟ | السبب                        |
-| ------------------- | --------------------: | ---------------------------- |
-| `package.json`      | نعم لو GSAP غير موجود | إضافة `gsap`                 |
-| `package-lock.json` |              تلقائيًا | نتيجة `npm install`          |
-| `vite.config.ts`    |               اختياري | فصل engine chunk أو alias    |
-| `tsconfig.json`     |               اختياري | alias مثل `@/superanimation` |
-
-لو مش محتاجين alias أو chunk splitting، ممكن نسيب `vite.config.ts` و`tsconfig.json` بدون تغيير.
-
----
-
-## 5. ملفات SuperAnimation الجديدة التي يجب إضافتها
-
-عشان نطبق المعمارية صح بدون تلويث المكونات، الأفضل إضافة طبقة مستقلة:
-
-```txt
-src/superanimation/index.ts
-src/superanimation/CompositorBridge.ts
-src/superanimation/MotionController.ts
-src/superanimation/PhysicsFactory.ts
-src/superanimation/PhysicsCompressor.ts
-src/superanimation/ProceduralAnimator.ts
-src/superanimation/ReactiveIndexer.ts
-src/superanimation/useSuperAnimation.ts
-src/superanimation/featureSupport.ts
-src/superanimation/types.ts
-```
-
-### وظيفة الملفات الجديدة
-
-| الملف الجديد            | وظيفته                                             |
-| ----------------------- | -------------------------------------------------- |
-| `CompositorBridge.ts`   | إرسال الحركة إلى WAAPI/GPU                         |
-| `MotionController.ts`   | Shadow State + interruption + velocity inheritance |
-| `PhysicsFactory.ts`     | توليد منحنيات spring/friction                      |
-| `PhysicsCompressor.ts`  | ضغط `linear()` عشان payload صغير                   |
-| `ProceduralAnimator.ts` | الحركات اللانهائية مثل starfield/layers            |
-| `ReactiveIndexer.ts`    | بديل `sibling-index/count` للـ stagger             |
-| `useSuperAnimation.ts`  | React hook آمن للتنظيف                             |
-| `featureSupport.ts`     | fallback للمتصفحات                                 |
-| `types.ts`              | types مشتركة                                       |
-| `index.ts`              | exports موحدة                                      |
-
----
-
-## 6. ملفات لا يجب تطبيق SuperAnimation عليها
-
-هذه لا علاقة لها بالرندر المباشر، ولمسها غير مطلوب:
-
-```txt
-.git/
-.env.example
-.gitignore
-README.md
-metadata.json
-index.html
-update_jsx.js
-update_jsx_2.cjs
-update_jsx_3.cjs
-update_tile_forge_v2.cjs
-update_tile_forge_v2_jsx.cjs
-update_timeline.cjs
-update_use_effect.cjs
-update_use_effect4.cjs
-app/applet/update_use_effect.cjs
-app/applet/update_use_effect2.cjs
-app/applet/update_use_effect3.cjs
-```
-
-ملفات `update_*` غالبًا scripts قديمة لتعديل الكود أو توليد patches. لا نستخدمها في runtime architecture إلا لو أنت معتمد عليها فعليًا في build pipeline.
-
----
-
-# القائمة النهائية المختصرة
-
-## نعدّل فعليًا
-
-```txt
-src/main.tsx
-src/App.tsx
-src/index.css
-src/components/Starfield.tsx
-src/components/OverlayLayers.tsx
-src/components/TileEntityForge.tsx
-src/components/Navigation.tsx
-src/components/Footer.tsx
-src/pages/Home.tsx
-src/pages/Work.tsx
-src/pages/Approach.tsx
-```
-
-## نستخدم أو نراجع كبيانات
-
-```txt
-src/components/generated_tiles.json
-src/components/new_tiles.json
-paths.json
-```
-
-## نعدّل لو توليد الحركة بيتم منها
-
-```txt
-generate_paths.ts
-generate_new_paths.ts
-generate_new.cjs
-app/applet/generate_paths.ts
-app/applet/generate_new_paths.ts
-app/applet/generate_new.cjs
-```
-
-## نعدّل لو محتاجين dependencies/config
-
-```txt
-package.json
-vite.config.ts
-tsconfig.json
-```
-
-## نضيف ملفات SuperAnimation
-
-```txt
-src/superanimation/index.ts
-src/superanimation/CompositorBridge.ts
-src/superanimation/MotionController.ts
-src/superanimation/PhysicsFactory.ts
-src/superanimation/PhysicsCompressor.ts
-src/superanimation/ProceduralAnimator.ts
-src/superanimation/ReactiveIndexer.ts
-src/superanimation/useSuperAnimation.ts
-src/superanimation/featureSupport.ts
-src/superanimation/types.ts
-```
-
-## لا نلمس
-
-```txt
-.git/
-.env.example
-.gitignore
-README.md
-metadata.json
-index.html
-update_jsx.js
-update_jsx_2.cjs
-update_jsx_3.cjs
-update_tile_forge_v2.cjs
-update_tile_forge_v2_jsx.cjs
-update_timeline.cjs
-update_use_effect.cjs
-update_use_effect4.cjs
-app/applet/update_use_effect.cjs
-app/applet/update_use_effect2.cjs
-app/applet/update_use_effect3.cjs
-```
-
-الخلاصة: **النطاق الحقيقي للتطبيق هو 11 ملف runtime أساسي + 3 ملفات بيانات للمراجعة + 6 ملفات توليد محتملة + طبقة engine جديدة داخل `src/superanimation`.**
-ده يطبق SuperAnimation التي ادرجتها في هذه الرساله بعد قراءه كل حرف و فهمه و فهم كل فكره و كل هدف بدقه 100% لن اقبل بدقه اقل من 100% بدون تغيير شكل الموقع، بشرط إننا نحافظ على نفس القيم الحالية للحركة والمقاسات والألوان والترتيب ونغير فقط طريقة التنفيذ من Main Thread إلى Compositor/GPU.
 "
 
 
 
 
 
-قم الان بتطبيق ال superanimation concept بدقه 100% لا تترك اي شئ بها يحتاج تعديل الا و تعدله بدقه 100% حرف حرف و فكره فكره و جمله جمله بدقه 100% لن اقبل بدقه اقل من 100% اطلاقا بمستوى principle engineer بدقه 100% على هذه الملفات الحاليه و اذا كان هناك ملفات جديده يجب انشائها اعطني اسم و موقع الملف الذي يجب انشائه و اعطني الكود الخاص به و اذا كان هناك ملف اخر غير الملفات المراد اعاده كتابتها كامله بعد التعديل المدرجه في الاسفل يجب تعديله اعطني الكود المعدل الخاص بالجزء الذي يجب تعديله بدقه 100% فقط لا تعيد كتابه الملف كاملا حتى استبدل الجزء القديم و و اخبرني موقع التعديل بدقه 100% داخل الملف حتى استبدله مباشره حيث اريد سرعه و سلاسه غير مسبوقه اريد افضل تجربه مستخدم بدقه 100% لا اريد تغيير شكل الموقع ابدا اريد فقط تطبيق المعماريه الخاصه بنا في nullixforge و التي اسمها ال superanimation 
+قم الان بتطبيق ال webgl and canvas concept بدقه 100% لا تترك اي شئ بها يحتاج تعديل الا و تعدله بدقه 100% حرف حرف و فكره فكره و جمله جمله بدقه 100% لن اقبل بدقه اقل من 100% اطلاقا بمستوى principle engineer بدقه 100% على هذه الملفات الحاليه و اذا كان هناك ملفات جديده يجب انشائها اعطني اسم و موقع الملف الذي يجب انشائه و اعطني الكود الخاص به و اذا كان هناك ملف اخر غير الملفات المراد اعاده كتابتها كامله بعد التعديل المدرجه في الاسفل يجب تعديله اعطني الكود المعدل الخاص بالجزء الذي يجب تعديله بدقه 100% فقط لا تعيد كتابه الملف كاملا حتى استبدل الجزء القديم و و اخبرني موقع التعديل بدقه 100% داخل الملف حتى استبدله مباشره حيث اريد سرعه و سلاسه غير مسبوقه اريد افضل تجربه مستخدم بدقه 100% لا اريد تغيير شكل الموقع ابدا اريد فقط تطبيق المعماريه الخاصه بنا في nullixforge و التي اسمها ال webgl and canvas 
 و اخبرني الفرق بين الكود القديم و الكود الجديد من حيث العمليه و ماذا يحقق و ما هي مميزات الكود الجديد و هل يحقق ما نرجوه ام لا و ما فرق الاداء بين الكود القديم و الكود الجديد بدقه 100%
+
+
+يجب ان تتبع هذه القواعد بدقه 100% لن اقبل بدقه اقل من 100% بمستوى دقه بمستوى system arhcitecture excellence  اعلى من مستوى enterprise production اتبع هذه النصيحه بدقه 100% لن اقبل بدقه اقل من 100% حتى ننتقل من مجرد system architecture excellence فقط الى  MACRO-MICRO DUALITY & LOW-LEVEL RIGOR excellency ايضا : "
+
+
+[SYSTEM DIRECTIVE: MACRO-MICRO DUALITY & LOW-LEVEL RIGOR]
+
+I am assigning you a critical cognitive framework. Read carefully and acknowledge your inherent AI bias before executing any code.
+
+1. THE DIAGNOSIS OF YOUR FLAW:
+As an AI, your default behavior is "Architectural Tunnel Vision". You excel at designing the high-level Macro-Architecture and fulfilling the structural plan with 100% accuracy. However, you consistently fail to look downward into the "Micro-Level Operations". You assume that if the architecture is sound, the individual operations will execute perfectly. You fail to act as a "Low-Level Technical Researcher" who scrutinizes the isolated, code-level edge cases of every single sub-operation. If these scientific and technical micro-edge cases are ignored, the entire macro-architecture will crash in a real-world environment. 
+
+2. YOUR NEW PERSONA:
+From now on, you are a "Dual-Minded Engineer":
+- Mind A: The High-Level System Architect (Handles Macro-edge cases and structural flow).
+- Mind B: The Low-Level Scientific Researcher (Isolates every micro-operation, tears it apart, and scrutinizes it for technical execution flaws, memory issues, hardware limits, and code-level edge cases).
+
+3. THE EXECUTION PIPELINE (MANDATORY PROTOCOL):
+For every coding task or system design I give you, you MUST execute the following pipeline before writing the final code:
+
+- STEP 1 (Deconstruction): Break down the overall architecture into small, isolated micro-operations. 
+- STEP 2 (Micro-Level Scrutiny): Treat EVERY single micro-operation as an independent universe. Do NOT look at the big picture right now. 
+- STEP 3 (Edge-Case Hunting): For each isolated operation, analyze it from a purely scientific/technical perspective. Ask yourself:
+   * What happens if data types implicitly coerce here?
+   * What are the exact memory/CPU implications of this specific loop/query?
+   * Are there race conditions, null pointers, or async timing issues in this exact line?
+   * What if the external payload exceeds hardware limits during this specific transformation?
+- STEP 4 (Micro-Resolutions): Write the specific error-handling, fallback, and validation code for these micro-edge cases.
+- STEP 5 (Macro-Integration): Now, integrate these hardened, bulletproof micro-operations back into the macro-architecture.
+
+4. YOUR OUTPUT FORMAT:
+Whenever I ask you to write code, do NOT just give me the code. You must first output a section titled "[LOW-LEVEL RESEARCHER ANALYSIS]" where you explicitly list the hidden micro-edge cases you discovered in the sub-operations and explain how you patched them technically. Only then, provide the final architecture code.
+
+Acknowledge this directive. Do you understand the difference between Macro-Architectural edge cases (which you are good at) and Micro-Operational technical edge cases (which you will now ruthlessly hunt)?
+
+
+"
+
+
 : "
 
 هيا نقم بتنفيذ هذه المرحله اعطني الملفات كامله بعد التعديل لا تترك اي شئ بها يحتاج تعديل الا و تعدله بدقه 100% : ""
