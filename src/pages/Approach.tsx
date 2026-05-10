@@ -40,13 +40,12 @@ export function Approach() {
                  border: '1px solid rgba(244,240,232,0.075)'
                }}
              >
-               {/* Grid */}
+               {/* Arcs replaced grid */}
                <div 
                  className="absolute inset-0"
                  style={{
-                   backgroundImage: 'linear-gradient(rgba(244,240,232,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(244,240,232,0.035) 1px, transparent 1px)',
-                   backgroundSize: '20px 20px',
-                   backgroundPosition: '10px 10px'
+                   background: 'radial-gradient(circle at 40% 50%, transparent 40px, rgba(244,240,232,0.035) 41px, transparent 42px), radial-gradient(circle at 40% 50%, transparent 80px, rgba(244,240,232,0.035) 81px, transparent 82px), radial-gradient(circle at 40% 50%, transparent 120px, rgba(244,240,232,0.035) 121px, transparent 122px)',
+                   backgroundSize: '100% 100%'
                  }}
                ></div>
                

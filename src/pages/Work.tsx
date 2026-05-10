@@ -71,8 +71,6 @@ export function Work({ onNavigate }: WorkProps) {
       
       {/* 1. WORK HERO */}
       <section className="mb-24 relative">
-        <div className="absolute top-10 left-10 w-[600px] h-[300px] bg-[radial-gradient(ellipse,rgba(255,106,42,0.1),transparent_70%)] pointer-events-none data-layer='forge-glow'" />
-
         <div className="mb-6 inline-flex items-center gap-2">
           <div className="w-1 h-1 bg-ember"></div>
           <span className="font-mono text-[11px] text-text-muted uppercase tracking-[0.2em]">

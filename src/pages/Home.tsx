@@ -58,11 +58,8 @@ export function Home({ initialService, shouldScrollToForm }: HomeProps) {
       
       {/* 1. HERO SECTION */}
       <section className="min-h-[92vh] flex flex-col md:flex-row items-center pt-12 md:pt-0 mb-32 relative">
-        <div className="absolute top-1/2 left-2/3 -translate-y-1/2 w-[500px] h-[500px] opacity-10 blur-[100px] bg-molten-gold rounded-full pointer-events-none" />
-        <div className="absolute -bottom-48 -left-48 w-96 h-96 opacity-20 blur-[120px] bg-ember rounded-full pointer-events-none" />
-        
         <div className="md:w-7/12 relative z-10 pr-0 md:pr-12">
-          <h1 className="text-[64px] font-bold leading-[64px] tracking-[-0.05em] mb-8 text-text-main font-sans">
+          <h1 className="text-[40px] md:text-[64px] font-bold leading-[46px] md:leading-[64px] tracking-[-0.05em] mb-8 text-text-main font-sans">
             From nothing, we forge what feels natural.
           </h1>
           <p className="max-w-[480px] text-text-muted leading-relaxed text-sm mb-10">

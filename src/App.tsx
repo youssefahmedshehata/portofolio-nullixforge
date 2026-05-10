@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Starfield } from './components/Starfield';
+import { GenesisDawnField } from './components/GenesisDawnField';
 import { Navigation } from './components/Navigation';
 import { Footer } from './components/Footer';
 import { Home } from './pages/Home';
@@ -32,16 +32,18 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen text-text-main flex flex-col font-sans selection:bg-ember-deep selection:text-text-main relative">
-      <Starfield />
-      
-      <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
+    <>
+      <GenesisDawnField currentPage={currentPage} />
+      <div className="min-h-screen text-text-main flex flex-col font-sans selection:bg-ember-deep selection:text-text-main relative w-full overflow-x-hidden">
+
+        <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
       
       <main className="flex-grow flex flex-col relative z-10 w-full animate-in fade-in duration-700">
         {renderPage()}
       </main>
       
       <Footer />
-    </div>
+      </div>
+    </>
   );
 }
