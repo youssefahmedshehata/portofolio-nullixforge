@@ -36,12 +36,14 @@ const generateDust = (count: number) => {
 
 export function GenesisDawnField({ currentPage }: { currentPage: string }) {
   const { layerA, layerB, layerC, layerD, dustParticles } = useMemo(() => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const factor = isMobile ? 0.4 : 1;
     return {
-      layerA: generateStars(100, [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.1, 0.4]),
-      layerB: generateStars(60, [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.2, 0.6]),
-      layerC: generateStars(30, [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.4, 0.8]),
-      layerD: generateStars(12, [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.4, 0.7]),
-      dustParticles: generateDust(45)
+      layerA: generateStars(Math.floor(100 * factor), [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.1, 0.4]),
+      layerB: generateStars(Math.floor(60 * factor), [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.2, 0.6]),
+      layerC: generateStars(Math.floor(30 * factor), [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.4, 0.8]),
+      layerD: generateStars(Math.floor(12 * factor), [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.4, 0.7]),
+      dustParticles: generateDust(Math.floor(45 * factor))
     };
   }, []);
 
@@ -72,7 +74,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
       data-layer={`cinematic-starfield-${layerName}`}
     >
       <div 
-        className="absolute inset-0" 
+        className="absolute inset-0 will-change-transform" 
         style={{
           animation: reduceMotion ? 'none' : `drift-up ${driftDuration} linear infinite`,
           height: '200%',
@@ -81,7 +83,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
         {stars.map((star) => (
           <div
             key={star.id}
-            className="absolute rounded-full"
+            className="absolute rounded-full will-change-transform-opacity"
             style={{
               width: `${star.size}px`,
               height: `${star.size}px`,
@@ -89,7 +91,6 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
-              boxShadow: star.size > 2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
               animation: reduceMotion ? 'none' : `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
               animationDelay: star.animationDelay,
             }}
@@ -98,7 +99,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
          {stars.map((star) => (
           <div
             key={`${star.id}-clone`}
-            className="absolute rounded-full"
+            className="absolute rounded-full will-change-transform-opacity"
             style={{
               width: `${star.size}px`,
               height: `${star.size}px`,
@@ -106,7 +107,6 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
-              boxShadow: star.size > 2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
               animation: reduceMotion ? 'none' : `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
               animationDelay: star.animationDelay,
             }}
@@ -120,27 +120,29 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
     <>
       <style>{`
         @keyframes drift-up {
-          0% { transform: translateY(0); }
-          100% { transform: translateY(-50%); }
+          0% { transform: translate3d(0, 0, 0); }
+          100% { transform: translate3d(0, -50%, 0); }
         }
         @keyframes dawn-breathe {
-          0% { transform: scaleY(1); opacity: 0.8; }
-          100% { transform: scaleY(1.05); opacity: 1; }
+          0% { transform: translateZ(0) scaleY(1); opacity: 0.8; }
+          100% { transform: translateZ(0) scaleY(1.05); opacity: 1; }
         }
         @keyframes rays-sway {
-          0% { transform: scale(1) rotate(-2deg); opacity: 0.7; }
-          100% { transform: scale(1.05) rotate(2deg); opacity: 1; }
+          0% { transform: translateZ(0) rotate(-2deg); opacity: 0.7; }
+          100% { transform: translateZ(0) rotate(2deg); opacity: 1; }
         }
         @keyframes dust-rise {
-          0% { transform: translate(0, 0) scale(1); opacity: 0; }
+          0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
           20% { opacity: 0.6; }
           80% { opacity: 0.4; }
-          100% { transform: translate(calc(var(--tx) * 1px), -200px) scale(0.5); opacity: 0; }
+          100% { transform: translate3d(calc(var(--tx) * 1px), -200px, 0) scale(0.5); opacity: 0; }
         }
         @keyframes arc-pulse {
-          0% { opacity: 0.2; transform: scale(0.98); }
-          100% { opacity: 0.6; transform: scale(1.02); }
+          0% { opacity: 0.2; transform: translateZ(0) scale(0.98); }
+          100% { opacity: 0.6; transform: translateZ(0) scale(1.02); }
         }
+        .will-change-transform { will-change: transform; }
+        .will-change-transform-opacity { will-change: transform, opacity; }
       `}</style>
       
       {/* Container for organization. z-[-9999] is the base. */}
@@ -194,38 +196,37 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
 
           {/* Volumetric Core Glow */}
           <div 
-            className="absolute left-1/2 bottom-[-150px] -translate-x-1/2 w-[60vw] max-w-[800px] h-[300px] rounded-[50%]"
+            className="absolute left-1/2 bottom-[-150px] -translate-x-1/2 w-[60vw] max-w-[800px] h-[300px] rounded-[50%] will-change-transform-opacity"
             style={{
               background: 'radial-gradient(ellipse at 50% 50%, rgba(255, 241, 210, 0.15) 0%, rgba(223, 165, 91, 0.08) 40%, rgba(166, 58, 22, 0.03) 70%, transparent 100%)',
-              filter: 'blur(40px)',
               animation: reduceMotion ? 'none' : 'dawn-breathe 18s cubic-bezier(0.16, 1, 0.3, 1) infinite alternate-reverse'
             }}
           />
         </div>
 
         {/* Layer 4: Volumetric Light Rays (CSS emulation) */}
-        <div data-layer="volumetric-rays" className="absolute inset-0 overflow-hidden mix-blend-screen transition-opacity duration-1000" style={{ opacity: pageState.raysOpacity * 0.6 }}>
+        <div data-layer="volumetric-rays" className="absolute inset-0 overflow-hidden transition-opacity duration-1000" style={{ opacity: pageState.raysOpacity * 0.6 }}>
           <div 
-            className="absolute left-1/2 bottom-0 w-[4px] h-[50vh] origin-bottom -translate-x-1/2 blur-[8px]"
+            className="absolute left-1/2 bottom-0 w-[4px] h-[50vh] origin-bottom -translate-x-1/2 will-change-transform-opacity"
             style={{
-              background: 'linear-gradient(to top, rgba(255,241,210,0.1), transparent)',
-              transform: 'translateX(-50%) rotate(-15deg)',
+              background: 'linear-gradient(to top, rgba(255,241,210,0.06), transparent)',
+              transform: 'translate3d(-50%, 0, 0) rotate(-15deg)',
               animation: reduceMotion ? 'none' : 'rays-sway 32s ease-in-out infinite alternate'
             }}
           />
           <div 
-            className="absolute left-1/2 bottom-0 w-[12px] h-[70vh] origin-bottom -translate-x-1/2 blur-[16px]"
+            className="absolute left-1/2 bottom-0 w-[12px] h-[70vh] origin-bottom -translate-x-1/2 will-change-transform-opacity"
             style={{
-              background: 'linear-gradient(to top, rgba(223,165,91,0.08), transparent)',
-              transform: 'translateX(-50%) rotate(8deg)',
+              background: 'radial-gradient(ellipse at bottom, rgba(223,165,91,0.04) 0%, transparent 70%)',
+              transform: 'translate3d(-50%, 0, 0) rotate(8deg)',
               animation: reduceMotion ? 'none' : 'rays-sway 45s ease-in-out infinite alternate-reverse'
             }}
           />
           <div 
-            className="absolute left-1/2 bottom-0 w-[24px] h-[60vh] origin-bottom -translate-x-1/2 blur-[24px]"
+            className="absolute left-1/2 bottom-0 w-[24px] h-[60vh] origin-bottom -translate-x-1/2 will-change-transform-opacity"
             style={{
-              background: 'linear-gradient(to top, rgba(255,106,42,0.06), transparent)',
-              transform: 'translateX(-50%) rotate(-25deg)',
+              background: 'radial-gradient(ellipse at bottom, rgba(255,106,42,0.03) 0%, transparent 70%)',
+              transform: 'translate3d(-50%, 0, 0) rotate(-25deg)',
               animation: reduceMotion ? 'none' : 'rays-sway 28s ease-in-out infinite alternate'
             }}
           />
@@ -236,14 +237,13 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           {!reduceMotion && dustParticles.map(dust => (
             <div
               key={`dust-${dust.id}`}
-              className="absolute rounded-full"
+              className="absolute rounded-full will-change-transform-opacity"
               style={{
                 width: `${dust.size}px`,
                 height: `${dust.size}px`,
                 left: `${dust.startX}%`,
                 top: `${dust.startY}%`,
                 background: '#FFF1D2',
-                boxShadow: `0 0 4px rgba(223,165,91,0.8)`,
                 '--tx': (Math.random() - 0.5) * 60,
                 animation: `dust-rise ${dust.duration} linear infinite`,
                 animationDelay: dust.delay
