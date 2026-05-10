@@ -68,7 +68,7 @@ export function Work({ onNavigate }: WorkProps) {
 
   return (
     <div className="relative pt-32 pb-12 w-full max-w-7xl mx-auto px-6 md:px-12 z-10" data-scene="work-systems">
-      
+
       {/* 1. WORK HERO */}
       <section className="mb-24 relative">
         <div className="mb-6 inline-flex items-center gap-2">
@@ -90,7 +90,7 @@ export function Work({ onNavigate }: WorkProps) {
       </section>
 
       {/* 2. FILTERS */}
-      <section className="mb-12 flex flex-wrap gap-4 border-b border-white/5 pb-8">
+      <section className="mb-12 flex flex-wrap gap-4 pb-8">
         <button className="px-[22px] py-[10px] rounded-full border border-ember text-[#030304] bg-ember text-[11px] uppercase tracking-widest font-bold shadow-[0_0_15px_rgba(255,106,42,0.2)] transition-colors">All</button>
         <button className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">Operating Systems</button>
         <button className="px-[22px] py-[10px] rounded-full border border-white/10 text-text-muted bg-transparent hover:border-ember/40 text-[11px] uppercase tracking-widest transition-colors">AI Control</button>
@@ -100,49 +100,49 @@ export function Work({ onNavigate }: WorkProps) {
       </section>
 
       {/* 3. CASE STUDY GRID */}
-      <section className="mb-40 bg-[#050608]/70 rounded-[36px] p-6 md:p-12 relative z-10">
+      <section className="mb-40 bg-[#050608]/70 rounded-[36px] md:p-12 relative z-10 ">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {caseStudies.map((study, i) => (
             <div key={i} className="group p-8 rounded-[24px] bg-[linear-gradient(180deg,rgba(17,19,24,0.97),rgba(7,8,10,0.99))] border border-white/[0.11] hover:border-ember/30 transition-all duration-300 flex flex-col shadow-[0_24px_60px_rgba(0,0,0,0.6)]">
-               <div className="flex justify-between items-start mb-6">
-                 <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-[#A9A39A]">[ {study.type} ]</span>
-                 <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-molten-gold transition-colors"></div>
-               </div>
-               
-               <h3 className="text-2xl font-bold mb-8 text-text-main group-hover:text-white transition-colors">{study.name}</h3>
-               
-               <div className="flex flex-col mb-12 flex-grow">
-                 {study.status && (
-                   <div className="pb-6 border-b border-white/[0.07]">
-                     <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Status</div>
-                     <p className="text-[#A9A39A] text-[13px] leading-relaxed">{study.status}</p>
-                   </div>
-                 )}
-                 <div className={`${study.status ? 'py-6' : 'pb-6'} border-b border-white/[0.07]`}>
-                   <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Problem</div>
-                   <p className="text-[#A9A39A] text-[13px] leading-relaxed">{study.problem}</p>
-                 </div>
-                 <div className="py-6 border-b border-white/[0.07]">
-                   <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Process</div>
-                   <p className="text-[#A9A39A] text-[13px] leading-relaxed">{study.process}</p>
-                 </div>
-                 <div className="pt-6">
-                   <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Result</div>
-                   <p className="text-text-main text-[13px] font-medium leading-relaxed">{study.result}</p>
-                 </div>
-               </div>
+              <div className="flex justify-between items-start mb-6">
+                <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-[#A9A39A]">[ {study.type} ]</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover:bg-molten-gold transition-colors"></div>
+              </div>
 
-               <div className="bg-[#0A0B0E] -mx-8 -mb-8 p-6 md:px-8 flex flex-col md:flex-row md:items-center justify-between gap-4 mt-auto rounded-b-[24px] border-t border-white/5">
-                 <div className="flex flex-wrap gap-2">
-                   {study.tags.map(tag => (
-                     <span key={tag} className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#A9A39A]">#{tag}</span>
-                   ))}
-                 </div>
-                 <button className="text-[10px] uppercase tracking-widest font-bold text-ember flex items-center gap-2 group/btn">
-                   {study.actionText || 'View case study'}
-                   <span className="transform group-hover/btn:translate-x-1 transition-transform">→</span>
-                 </button>
-               </div>
+              <h3 className="text-2xl font-bold mb-8 text-text-main group-hover:text-white transition-colors">{study.name}</h3>
+
+              <div className="flex flex-col mb-12 flex-grow">
+                {study.status && (
+                  <div className="pb-6 border-b border-white/[0.07]">
+                    <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Status</div>
+                    <p className="text-[#A9A39A] text-[13px] leading-relaxed">{study.status}</p>
+                  </div>
+                )}
+                <div className={`${study.status ? 'py-6' : 'pb-6'} border-b border-white/[0.07]`}>
+                  <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Problem</div>
+                  <p className="text-[#A9A39A] text-[13px] leading-relaxed">{study.problem}</p>
+                </div>
+                <div className="py-6 border-b border-white/[0.07]">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Process</div>
+                  <p className="text-[#A9A39A] text-[13px] leading-relaxed">{study.process}</p>
+                </div>
+                <div className="pt-6">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#6F6A63] mb-2">Result</div>
+                  <p className="text-text-main text-[13px] font-medium leading-relaxed">{study.result}</p>
+                </div>
+              </div>
+
+              <div className="bg-[#0A0B0E] -mx-8 -mb-8 p-6 md:px-8 flex flex-col md:flex-row md:items-center justify-between gap-4 mt-auto rounded-b-[24px] border-t border-white/5">
+                <div className="flex flex-wrap gap-2">
+                  {study.tags.map(tag => (
+                    <span key={tag} className="text-[9px] font-mono uppercase tracking-[0.2em] text-[#A9A39A]">#{tag}</span>
+                  ))}
+                </div>
+                <button className="text-[10px] uppercase tracking-widest font-bold text-ember flex items-center gap-2 group/btn">
+                  {study.actionText || 'View case study'}
+                  <span className="transform group-hover/btn:translate-x-1 transition-transform">→</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -194,39 +194,39 @@ export function Work({ onNavigate }: WorkProps) {
               cta: "Forge an AI layer",
               diagram: (
                 <div className="relative opacity-40 mb-8 h-12 flex items-center">
-                   <div className="absolute w-full border-t border-white/20"></div>
-                   <div className="absolute left-1/4 w-3 h-3 rotate-45 bg-ember blur-[2px]"></div>
-                   <div className="absolute left-1/2 w-2 h-2 rotate-45 border border-ember"></div>
-                   <div className="absolute right-1/4 w-3 h-3 rotate-45 bg-ember blur-[2px]"></div>
+                  <div className="absolute w-full border-t border-white/20"></div>
+                  <div className="absolute left-1/4 w-3 h-3 rotate-45 bg-ember blur-[2px]"></div>
+                  <div className="absolute left-1/2 w-2 h-2 rotate-45 border border-ember"></div>
+                  <div className="absolute right-1/4 w-3 h-3 rotate-45 bg-ember blur-[2px]"></div>
                 </div>
               )
             }
           ].map((srv, i) => (
             <div key={i} className="group p-8 md:p-10 rounded-[28px] bg-[#0D0F13]/98 border border-white/[0.12] hover:border-ember/30 transition-all duration-300 relative flex flex-col shadow-[0_36px_110px_rgba(0,0,0,0.55)]">
-               <div className="absolute bottom-0 inset-x-8 h-[2px] bg-molten-gold/20"></div>
-               
-               <div className="bg-[#08090B] border border-white/5 p-4 rounded-[16px] mb-8 flex items-center min-h-[64px]">
-                 {srv.diagram}
-               </div>
+              <div className="absolute bottom-0 inset-x-8 h-[2px] bg-molten-gold/20"></div>
 
-               <h3 className="text-xl font-bold mb-4 text-text-main group-hover:text-molten-gold transition-colors">{srv.title}</h3>
-               <p className="text-[#A9A39A] text-[13px] leading-relaxed mb-10 flex-grow">{srv.desc}</p>
-               
-               <button 
-                 onClick={() => {
-                   if (onNavigate) {
-                     // Determine the service to set in dropdown based on title
-                     let serviceToSet = 'Web System';
-                     if (srv.title === 'Applications') serviceToSet = 'Application';
-                     if (srv.title === 'AI Solutions') serviceToSet = 'AI Solution';
-                     
-                     onNavigate('home', { service: serviceToSet, scrollToId: 'contact-form-section' });
-                   }
-                 }}
-                 className="mt-auto px-6 py-3 border border-white/10 rounded-full text-[11px] uppercase tracking-widest font-bold hover:bg-ember hover:border-ember hover:text-[#030304] transition-all bg-[#030304] w-fit text-text-main"
-               >
-                 {srv.cta}
-               </button>
+              <div className="bg-[#08090B] border border-white/5 p-4 rounded-[16px] mb-8 flex items-center min-h-[64px]">
+                {srv.diagram}
+              </div>
+
+              <h3 className="text-xl font-bold mb-4 text-text-main group-hover:text-molten-gold transition-colors">{srv.title}</h3>
+              <p className="text-[#A9A39A] text-[13px] leading-relaxed mb-10 flex-grow">{srv.desc}</p>
+
+              <button
+                onClick={() => {
+                  if (onNavigate) {
+                    // Determine the service to set in dropdown based on title
+                    let serviceToSet = 'Web System';
+                    if (srv.title === 'Applications') serviceToSet = 'Application';
+                    if (srv.title === 'AI Solutions') serviceToSet = 'AI Solution';
+
+                    onNavigate('home', { service: serviceToSet, scrollToId: 'contact-form-section' });
+                  }
+                }}
+                className="mt-auto px-6 py-3 border border-white/10 rounded-full text-[11px] uppercase tracking-widest font-bold hover:bg-ember hover:border-ember hover:text-[#030304] transition-all bg-[#030304] w-fit text-text-main"
+              >
+                {srv.cta}
+              </button>
             </div>
           ))}
         </div>
