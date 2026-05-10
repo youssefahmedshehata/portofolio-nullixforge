@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { LogicKernel } from '../superanimation';
+import React, { useEffect, useState } from 'react';
 
 const TRACE_GROUPS = [
   [], // 0
@@ -169,7 +168,6 @@ export default function OverlayLayers() {
   const [phaseIndex, setPhaseIndex] = useState(0);
   const [traceLines, setTraceLines] = useState<string[]>([]);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  const phaseIndexRef = useRef(0);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -181,33 +179,32 @@ export default function OverlayLayers() {
 
   useEffect(() => {
     if (prefersReducedMotion) {
-      phaseIndexRef.current = 9; // STABLE_VERIFICATION phase
-      setPhaseIndex(9);
-      return undefined;
+      setPhaseIndex(9); // STABLE_VERIFICATION phase
+      return;
     }
 
     const startTime = performance.now();
+    let frameId: number;
 
-    return LogicKernel.add((_deltaMs, timestamp) => {
-      const elapsed = (timestamp - startTime) % 32000;
+    const update = () => {
+      const now = performance.now();
+      const elapsed = (now - startTime) % 32000;
       const progress = (elapsed / 32000) * 100;
 
-      let nextPhaseIndex = 0;
-
-      for (let i = 0; i < OVERLAY_PHASES.length; i += 1) {
-        const phase = OVERLAY_PHASES[i];
-
-        if (progress >= phase.range[0] && progress < phase.range[1]) {
-          nextPhaseIndex = i;
+      let pIndex = 0;
+      for (let i = 0; i < OVERLAY_PHASES.length; i++) {
+        if (progress >= OVERLAY_PHASES[i].range[0] && progress < OVERLAY_PHASES[i].range[1]) {
+          pIndex = i;
           break;
         }
       }
+      
+      setPhaseIndex(pIndex);
+      frameId = requestAnimationFrame(update);
+    };
 
-      if (nextPhaseIndex !== phaseIndexRef.current) {
-        phaseIndexRef.current = nextPhaseIndex;
-        setPhaseIndex(nextPhaseIndex);
-      }
-    });
+    frameId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameId);
   }, [prefersReducedMotion]);
 
   const currentPhase = OVERLAY_PHASES[phaseIndex] || OVERLAY_PHASES[0];
@@ -221,23 +218,22 @@ export default function OverlayLayers() {
     let timeoutId: any;
     const groupLines = TRACE_GROUPS[currentPhase.traceGroup];
     let visibleCount = 1;
-
+    
     const showNextLine = () => {
-      setTraceLines(groupLines.slice(0, visibleCount));
-      if (visibleCount < groupLines.length) {
-        visibleCount++;
-        timeoutId = setTimeout(showNextLine, 450 + Math.random() * 350);
-      }
+       setTraceLines(groupLines.slice(0, visibleCount));
+       if (visibleCount < groupLines.length) {
+           visibleCount++;
+           timeoutId = setTimeout(showNextLine, 450 + Math.random() * 350);
+       }
     };
-
+    
     showNextLine();
     return () => clearTimeout(timeoutId);
   }, [currentPhase.traceGroup, prefersReducedMotion]);
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{
-        __html: `
+      <style dangerouslySetInnerHTML={{ __html: `
         .cognitive-overlay-panel {
           box-sizing: border-box;
           backdrop-filter: none;
@@ -300,9 +296,6 @@ export default function OverlayLayers() {
 
         .trace-line-enter {
            animation: trace-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-           will-change: opacity, transform;
-           backface-visibility: hidden;
-           transform-style: preserve-3d;
         }
 
         @keyframes trace-enter {
@@ -312,9 +305,6 @@ export default function OverlayLayers() {
 
         .fade-transition {
            transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
-           will-change: opacity, transform;
-           backface-visibility: hidden;
-           transform-style: preserve-3d;
         }
 
         .trace-buffer-scroll {
@@ -326,9 +316,7 @@ export default function OverlayLayers() {
       `}} />
 
       {/* TOP RIGHT: COMPUTATION TRACE */}
-      <div
-        data-sa-promote
-        data-sa-will-change="opacity, transform"
+      <div 
         className="cognitive-overlay-panel panel-trace overflow-hidden flex flex-col"
         style={{
           backgroundColor: '#030405',
@@ -340,7 +328,7 @@ export default function OverlayLayers() {
 
         <div className="cognitive-overlay-content flex flex-col h-full w-full">
           {/* Header Area */}
-          <div
+          <div 
             className="flex flex-col flex-shrink-0 px-[14px] py-[10px] relative z-10"
             style={{
               background: 'linear-gradient(180deg, #0C0F13 0%, #060709 100%)',
@@ -353,12 +341,12 @@ export default function OverlayLayers() {
               <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-[rgba(244,240,232,0.58)] relative">COMPUTATION TRACE</div>
               <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-[rgba(244,240,232,0.46)]">BUFFER 64L</div>
             </div>
-
+            
             {/* Status Row */}
             <div className="flex items-center gap-1.5 flex-shrink-0 relative">
-              <div
-                className={`w-[5px] h-[5px] rounded-full transition-colors duration-300 ${currentPhase.phaseName.includes('UNSTABLE') ? 'bg-[#FF4B3E]' : currentPhase.phaseName.includes('STABLE') ? 'bg-[#6EE7A8]' : 'bg-[#FF6A2A]'}`}
-                style={{ opacity: 0.55 }}
+              <div 
+                className={`w-[5px] h-[5px] rounded-full transition-colors duration-300 ${currentPhase.phaseName.includes('UNSTABLE') ? 'bg-[#FF4B3E]' : currentPhase.phaseName.includes('STABLE') ? 'bg-[#6EE7A8]' : 'bg-[#FF6A2A]'}`} 
+                style={{ opacity: 0.55 }} 
               />
               <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-[rgba(244,240,232,0.46)]">RUNNING</div>
             </div>
@@ -366,7 +354,7 @@ export default function OverlayLayers() {
 
           <div className="flex flex-col flex-1 px-[14px] pb-[14px]">
             {/* PINNED OUTPUT */}
-            <div
+            <div 
               className="flex-shrink-0 relative overflow-hidden"
               style={{
                 backgroundColor: '#010202',
@@ -384,70 +372,70 @@ export default function OverlayLayers() {
                 mixBlendMode: 'normal'
               }}
             >
-              <div className="flex items-center gap-1.5 mb-1 relative">
-                <div className="w-[1px] h-[8px] bg-[rgba(223,165,91,0.64)]"></div>
-                <div className="font-mono text-[8.5px] uppercase tracking-[0.16em] text-[rgba(223,165,91,0.64)] leading-none mt-0.5">PINNED OUTPUT</div>
-              </div>
-              <div className="font-mono text-[8px] uppercase tracking-[0.14em] text-[rgba(244,240,232,0.48)] mb-1.5 leading-none relative">
-                {currentPhase.pinnedOutputState.includes('applied') ? 'CONSTRAINT SET VERIFIED' : 'LEARNED CONSTRAINTS'}
-              </div>
+               <div className="flex items-center gap-1.5 mb-1 relative">
+                  <div className="w-[1px] h-[8px] bg-[rgba(223,165,91,0.64)]"></div>
+                  <div className="font-mono text-[8.5px] uppercase tracking-[0.16em] text-[rgba(223,165,91,0.64)] leading-none mt-0.5">PINNED OUTPUT</div>
+               </div>
+               <div className="font-mono text-[8px] uppercase tracking-[0.14em] text-[rgba(244,240,232,0.48)] mb-1.5 leading-none relative">
+                  {currentPhase.pinnedOutputState.includes('applied') ? 'CONSTRAINT SET VERIFIED' : 'LEARNED CONSTRAINTS'}
+               </div>
 
-              <div className="relative h-[48px]">
-                {/* Empty State */}
-                <div
-                  className={prefersReducedMotion ? "absolute inset-0" : "fade-transition absolute inset-0"}
-                  style={{ opacity: currentPhase.pinnedOutputState === 'empty' || currentPhase.pinnedOutputState === 'reset' ? 1 : 0, pointerEvents: 'none' }}
-                >
-                  <div className="font-mono text-[9px] text-[rgba(244,240,232,0.46)]">buffer empty</div>
-                </div>
-
-                {/* Constraints Container */}
-                <div
-                  className={prefersReducedMotion ? "absolute w-full flex flex-col gap-1.5" : "fade-transition absolute w-full flex flex-col gap-1.5"}
-                  style={{ opacity: (currentPhase.pinnedOutputState !== 'empty' && currentPhase.pinnedOutputState !== 'reset') ? 1 : 0, pointerEvents: 'none' }}
-                >
-                  {/* C1 State */}
-                  <div className={prefersReducedMotion ? "flex flex-col" : "fade-transition flex flex-col"}
-                    style={{ opacity: currentPhase.pinnedOutputState.includes('c1') ? 1 : 0 }}>
-                    <div className="flex justify-between items-center mb-0.5">
-                      <div className="font-mono text-[9px] uppercase text-[rgba(244,240,232,0.70)] leading-none">C₁</div>
-                      <div className={`font-mono text-[8px] uppercase leading-none ${currentPhase.pinnedOutputState.includes('applied') ? 'text-[rgba(110,231,168,0.78)]' : 'text-[rgba(223,165,91,0.78)]'}`}>
-                        {currentPhase.pinnedOutputState.includes('applied') ? 'APPLIED' : 'LEARNED'}
-                      </div>
-                    </div>
-                    <div className="font-sans text-[9.5px] min-[1024px]:text-[10px] text-[rgba(244,240,232,0.78)] leading-[1.35]">
-                      {currentPhase.pinnedOutputState.includes('applied') ? 'interior continuity restored' : 'hollow span ≠ clean structure'}
-                    </div>
+               <div className="relative h-[48px]">
+                  {/* Empty State */}
+                  <div 
+                    className={prefersReducedMotion ? "absolute inset-0" : "fade-transition absolute inset-0"}
+                    style={{ opacity: currentPhase.pinnedOutputState === 'empty' || currentPhase.pinnedOutputState === 'reset' ? 1 : 0, pointerEvents: 'none' }}
+                  >
+                    <div className="font-mono text-[9px] text-[rgba(244,240,232,0.46)]">buffer empty</div>
                   </div>
 
-                  {/* C2 State */}
-                  <div className={prefersReducedMotion ? "flex flex-col" : "fade-transition flex flex-col"}
-                    style={{ opacity: currentPhase.pinnedOutputState.includes('c2') ? 1 : 0 }}>
-                    <div className="flex justify-between items-center mb-0.5">
-                      <div className="font-mono text-[9px] uppercase text-[rgba(244,240,232,0.70)] leading-none">C₂</div>
-                      <div className={`font-mono text-[8px] uppercase leading-none ${currentPhase.pinnedOutputState.includes('applied') ? 'text-[rgba(110,231,168,0.78)]' : 'text-[rgba(223,165,91,0.78)]'}`}>
-                        {currentPhase.pinnedOutputState.includes('applied') ? 'APPLIED' : 'LEARNED'}
+                  {/* Constraints Container */}
+                  <div 
+                    className={prefersReducedMotion ? "absolute w-full flex flex-col gap-1.5" : "fade-transition absolute w-full flex flex-col gap-1.5"}
+                    style={{ opacity: (currentPhase.pinnedOutputState !== 'empty' && currentPhase.pinnedOutputState !== 'reset') ? 1 : 0, pointerEvents: 'none' }}
+                  >
+                    {/* C1 State */}
+                    <div className={prefersReducedMotion ? "flex flex-col" : "fade-transition flex flex-col"}
+                         style={{ opacity: currentPhase.pinnedOutputState.includes('c1') ? 1 : 0 }}>
+                      <div className="flex justify-between items-center mb-0.5">
+                        <div className="font-mono text-[9px] uppercase text-[rgba(244,240,232,0.70)] leading-none">C₁</div>
+                        <div className={`font-mono text-[8px] uppercase leading-none ${currentPhase.pinnedOutputState.includes('applied') ? 'text-[rgba(110,231,168,0.78)]' : 'text-[rgba(223,165,91,0.78)]'}`}>
+                           {currentPhase.pinnedOutputState.includes('applied') ? 'APPLIED' : 'LEARNED'}
+                        </div>
+                      </div>
+                      <div className="font-sans text-[9.5px] min-[1024px]:text-[10px] text-[rgba(244,240,232,0.78)] leading-[1.35]">
+                         {currentPhase.pinnedOutputState.includes('applied') ? 'interior continuity restored' : 'hollow span ≠ clean structure'}
                       </div>
                     </div>
-                    <div className="font-sans text-[9.5px] min-[1024px]:text-[10px] text-[rgba(244,240,232,0.78)] leading-[1.35]">
-                      {currentPhase.pinnedOutputState.includes('applied') ? 'center weight resolved' : 'compressed fit ≠ stable center'}
+
+                    {/* C2 State */}
+                    <div className={prefersReducedMotion ? "flex flex-col" : "fade-transition flex flex-col"}
+                         style={{ opacity: currentPhase.pinnedOutputState.includes('c2') ? 1 : 0 }}>
+                      <div className="flex justify-between items-center mb-0.5">
+                        <div className="font-mono text-[9px] uppercase text-[rgba(244,240,232,0.70)] leading-none">C₂</div>
+                        <div className={`font-mono text-[8px] uppercase leading-none ${currentPhase.pinnedOutputState.includes('applied') ? 'text-[rgba(110,231,168,0.78)]' : 'text-[rgba(223,165,91,0.78)]'}`}>
+                           {currentPhase.pinnedOutputState.includes('applied') ? 'APPLIED' : 'LEARNED'}
+                        </div>
+                      </div>
+                      <div className="font-sans text-[9.5px] min-[1024px]:text-[10px] text-[rgba(244,240,232,0.78)] leading-[1.35]">
+                         {currentPhase.pinnedOutputState.includes('applied') ? 'center weight resolved' : 'compressed fit ≠ stable center'}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+               </div>
             </div>
-
+            
             {/* ROLLING TRACE BUFFER */}
             <div className="trace-buffer-scroll flex-1 font-mono text-[9px] tracking-[0.1em] text-[rgba(244,240,232,0.88)] opacity-80 overflow-hidden relative">
               <div className="absolute bottom-0 w-full flex flex-col justify-end">
                 {traceLines.map((line, idx) => {
-                  const age = traceLines.length - 1 - idx;
-                  const lineOpacity = prefersReducedMotion ? 1 : Math.max(0.2, 1 - age * 0.25);
-                  return (
-                    <div key={`${currentPhase.traceGroup}-${idx}`} className={prefersReducedMotion ? "mb-0.5" : "trace-line-enter mb-0.5"} style={{ opacity: lineOpacity }}>
-                      {line}
-                    </div>
-                  );
+                   const age = traceLines.length - 1 - idx;
+                   const lineOpacity = prefersReducedMotion ? 1 : Math.max(0.2, 1 - age * 0.25);
+                   return (
+                     <div key={`${currentPhase.traceGroup}-${idx}`} className={prefersReducedMotion ? "mb-0.5" : "trace-line-enter mb-0.5"} style={{ opacity: lineOpacity }}>
+                       {line}
+                     </div>
+                   );
                 })}
               </div>
             </div>
@@ -456,9 +444,7 @@ export default function OverlayLayers() {
       </div>
 
       {/* BOTTOM LEFT: NULLIXFORGE PRINCIPLE */}
-      <div
-        data-sa-promote
-        data-sa-will-change="opacity, transform"
+      <div 
         className="cognitive-overlay-panel panel-principle overflow-hidden flex"
         style={{
           backgroundColor: '#050607',
@@ -473,21 +459,21 @@ export default function OverlayLayers() {
             <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-[rgba(244,240,232,0.58)]">NULLIXFORGE PRINCIPLE</div>
           </div>
           <div className="relative h-[48px] flex items-center">
-            {OVERLAY_PHASES.map((p, idx) => (
-              <div
-                key={p.principleId + "-" + idx}
-                className={prefersReducedMotion ? "absolute inset-0 flex items-center" : "fade-transition absolute inset-0 flex items-center"}
-                style={{
-                  opacity: currentPhase.principle === p.principle && currentPhase.principleId === p.principleId ? 1 : 0,
-                  transform: prefersReducedMotion ? 'none' : (currentPhase.principle === p.principle && currentPhase.principleId === p.principleId ? 'translateY(0)' : 'translateY(-4px)'),
-                  pointerEvents: 'none'
-                }}
-              >
-                <div className="font-sans text-[12px] leading-[1.45] tracking-[-0.01em] text-[rgba(244,240,232,0.88)]">
-                  {p.principle}
+             {OVERLAY_PHASES.map((p, idx) => (
+                <div 
+                  key={p.principleId + "-" + idx} 
+                  className={prefersReducedMotion ? "absolute inset-0 flex items-center" : "fade-transition absolute inset-0 flex items-center"}
+                  style={{
+                    opacity: currentPhase.principle === p.principle && currentPhase.principleId === p.principleId ? 1 : 0,
+                    transform: prefersReducedMotion ? 'none' : (currentPhase.principle === p.principle && currentPhase.principleId === p.principleId ? 'translateY(0)' : 'translateY(-4px)'),
+                    pointerEvents: 'none'
+                  }}
+                >
+                  <div className="font-sans text-[12px] leading-[1.45] tracking-[-0.01em] text-[rgba(244,240,232,0.88)]">
+                    {p.principle}
+                  </div>
                 </div>
-              </div>
-            ))}
+             ))}
           </div>
         </div>
       </div>
