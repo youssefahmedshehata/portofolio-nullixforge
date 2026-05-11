@@ -39,10 +39,10 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const factor = isMobile ? 0.4 : 1;
     return {
-      layerA: generateStars(Math.floor(100 * factor), [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.1, 0.4]),
-      layerB: generateStars(Math.floor(60 * factor), [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.2, 0.6]),
-      layerC: generateStars(Math.floor(30 * factor), [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.4, 0.8]),
-      layerD: generateStars(Math.floor(12 * factor), [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.4, 0.7]),
+      layerA: generateStars(Math.floor(200 * factor), [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.2, 0.6]),
+      layerB: generateStars(Math.floor(120 * factor), [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.4, 0.8]),
+      layerC: generateStars(Math.floor(60 * factor), [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.6, 1.0]),
+      layerD: generateStars(Math.floor(24 * factor), [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.6, 1.0]),
       dustParticles: generateDust(Math.floor(45 * factor))
     };
   }, []);
@@ -91,6 +91,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
+              boxShadow: star.size > 1.2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
               animation: reduceMotion ? 'none' : `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
               animationDelay: star.animationDelay,
             }}
@@ -107,6 +108,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
+              boxShadow: star.size > 1.2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
               animation: reduceMotion ? 'none' : `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
               animationDelay: star.animationDelay,
             }}
