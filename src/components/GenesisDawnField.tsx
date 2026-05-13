@@ -65,12 +65,12 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
   }, [currentPage]);
 
   const renderStarLayer = (stars: any[], layerName: string, driftDuration: string) => (
-    <div 
-      className="absolute inset-0 pointer-events-none overflow-hidden" 
+    <div
+      className="absolute inset-0 pointer-events-none overflow-hidden"
       data-layer={`cinematic-starfield-${layerName}`}
     >
-      <div 
-        className="absolute inset-0 will-change-transform" 
+      <div
+        className="absolute inset-0 will-change-transform"
         style={{
           animation: reduceMotion ? 'none' : `drift-up ${driftDuration} linear infinite`,
           height: '200%',
@@ -93,14 +93,14 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
             }}
           />
         ))}
-         {stars.map((star) => (
+        {stars.map((star) => (
           <div
             key={`${star.id}-clone`}
             className="absolute rounded-full will-change-transform-opacity"
             style={{
               width: `${star.size}px`,
               height: `${star.size}px`,
-              top: `${50 + (star.top / 2)}%`, 
+              top: `${50 + (star.top / 2)}%`,
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
@@ -142,13 +142,13 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
         .will-change-transform { will-change: transform; }
         .will-change-transform-opacity { will-change: transform, opacity; }
       `}</style>
-      
+
       {/* Container for organization. z-[-9999] is the base. */}
       <div className="fixed inset-0 w-screen h-screen z-[-9999] pointer-events-none overflow-hidden" data-layer="genesis-dawn-field" data-future="webgl-shader-ready">
-        
+
         {/* Layer 1: Void Depth Base */}
-        <div 
-          data-layer="void-depth" 
+        <div
+          data-layer="void-depth"
           className="absolute inset-0"
           style={{
             background: 'radial-gradient(ellipse at 50% 120%, #0B0D10 0%, #08090B 35%, #050607 65%, #030304 100%)'
@@ -165,16 +165,16 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
 
         {/* Layer 2.5: Cinematic Earth Eclipse */}
         <div data-layer="cinematic-earth" className="absolute inset-0 overflow-hidden pointer-events-none transition-opacity duration-1000 flex items-center justify-center" style={{ opacity: pageState.starsOpacity * 0.9 }}>
-          
+
           {/* Cinematic Sun / Corona behind Earth */}
           <div className="absolute top-[5%] md:top-[12%] w-[120vw] h-[120vw] md:w-[70vw] md:h-[70vw] max-w-[1000px] max-h-[1000px] rounded-full flex items-center justify-center pointer-events-none will-change-transform opacity-90" style={{ animation: reduceMotion ? 'none' : 'dawn-breathe 28s ease-in-out infinite alternate-reverse' }}>
-             {/* Deep space corona glow */}
-             <div className="absolute w-[150%] h-[150%] bg-[radial-gradient(circle_at_50%_10%,rgba(255,106,42,0.25)_0%,rgba(223,165,91,0.15)_30%,rgba(255,241,210,0.05)_60%,transparent_80%)] blur-[50px] mix-blend-screen" />
-             {/* Intense hidden sun peaking from the top-center */}
-             <div className="absolute top-[-5%] w-[110%] h-[110%] bg-[radial-gradient(circle_at_50%_15%,rgba(255,241,210,0.9)_0%,rgba(223,165,91,0.6)_10%,rgba(255,106,42,0.25)_30%,transparent_60%)] blur-[25px] mix-blend-screen" />
+            {/* Deep space corona glow */}
+            <div className="absolute w-[150%] h-[150%] bg-[radial-gradient(circle_at_50%_10%,rgba(255,106,42,0.25)_0%,rgba(223,165,91,0.15)_30%,rgba(255,241,210,0.05)_60%,transparent_80%)] blur-[50px] mix-blend-screen" />
+            {/* Intense hidden sun peaking from the top-center */}
+            <div className="absolute top-[-5%] w-[110%] h-[110%] bg-[radial-gradient(circle_at_50%_15%,rgba(255,241,210,0.9)_0%,rgba(223,165,91,0.6)_10%,rgba(255,106,42,0.25)_30%,transparent_60%)] blur-[25px] mix-blend-screen" />
           </div>
 
-          <div 
+          <div
             className="absolute top-[5%] md:top-[12%] w-[120vw] h-[120vw] md:w-[70vw] md:h-[70vw] max-w-[1000px] max-h-[1000px] rounded-full will-change-transform z-10"
             style={{
               background: 'radial-gradient(circle at 50% 60%, #010101 40%, #030304 80%, #060708 100%)',
@@ -191,9 +191,9 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
             <div className="absolute inset-x-0 top-[-2px] h-[30%] rounded-t-full bg-[radial-gradient(ellipse_at_top,rgba(255,241,210,0.8)_0%,rgba(223,165,91,0.3)_30%,transparent_70%)] blur-[12px] mix-blend-screen" />
             <div className="absolute inset-x-0 top-0 h-[50%] rounded-t-full bg-[radial-gradient(ellipse_at_top,rgba(255,241,210,0.4)_0%,rgba(223,165,91,0.2)_40%,transparent_70%)] blur-[20px]" />
             <div className="absolute inset-x-0 bottom-0 h-[40%] rounded-b-full bg-[radial-gradient(ellipse_at_bottom,rgba(223,165,91,0.12)_0%,transparent_70%)] blur-[30px]" />
-            
+
             {/* Abstract continents / city grid lights in shadow */}
-            <div 
+            <div
               className="absolute inset-0 rounded-full opacity-[0.08] mix-blend-screen"
               style={{
                 backgroundImage: 'radial-gradient(circle at center, rgba(223,165,91,0.8) 0.5px, transparent 1px)',
@@ -208,14 +208,14 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
         {/* Layer 5: System Orbits / Signal Arcs */}
         <div data-layer="system-orbits" className="absolute inset-0 overflow-hidden transition-opacity duration-1000" style={{ opacity: pageState.starsOpacity }}>
           {/* Subtle orbital ring */}
-          <div 
+          <div
             className="absolute left-1/2 bottom-[-40vh] w-[120vw] h-[120vw] max-w-[1600px] max-h-[1600px] -translate-x-1/2 rounded-full border border-[rgba(223,165,91,0.06)]"
             style={{
               animation: reduceMotion ? 'none' : 'arc-pulse 30s cubic-bezier(0.16, 1, 0.3, 1) infinite alternate'
             }}
           />
           {/* Inner signal path */}
-          <div 
+          <div
             className="absolute left-1/2 bottom-[-20vh] w-[80vw] h-[80vw] max-w-[1000px] max-h-[1000px] -translate-x-1/2 rounded-full border border-[rgba(255,241,210,0.04)]"
             style={{
               animation: reduceMotion ? 'none' : 'arc-pulse 24s cubic-bezier(0.16, 1, 0.3, 1) infinite alternate-reverse'
@@ -225,7 +225,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
 
         {/* Layer 3: Solar Forge Dawn */}
         <div className="absolute inset-x-0 bottom-0 origin-bottom transition-opacity duration-1000" style={{ opacity: pageState.dawnOpacity, height: '70vh' }}>
-          <div 
+          <div
             data-layer="solar-forge-dawn"
             className="absolute inset-0 origin-bottom"
             style={{
@@ -235,7 +235,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           />
 
           {/* Volumetric Core Glow */}
-          <div 
+          <div
             className="absolute left-1/2 bottom-[-150px] -translate-x-1/2 w-[60vw] max-w-[800px] h-[300px] rounded-[50%] will-change-transform-opacity"
             style={{
               background: 'radial-gradient(ellipse at 50% 50%, rgba(255, 241, 210, 0.15) 0%, rgba(223, 165, 91, 0.08) 40%, rgba(166, 58, 22, 0.03) 70%, transparent 100%)',
@@ -268,11 +268,11 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
         </div>
 
         {/* Layer 7: Atmospheric Veil (Restored but much more transparent) */}
-        <div 
+        <div
           data-layer="atmospheric-veil"
           className="absolute inset-0"
           style={{
-            background: 'linear-gradient(180deg, rgba(3,3,4,0.3) 0%, rgba(3,3,4,0.15) 50%, rgba(3,3,4,0.4) 100%)'
+            background: 'linear-gradient(180deg, rgba(3,3,4,0.1) 0%, rgba(3,3,4,0.07) 50%, rgba(3,3,4,0.1) 100%)'
           }}
         />
       </div>
