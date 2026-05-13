@@ -267,7 +267,14 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           ))}
         </div>
 
-        {/* Layer 7: Atmospheric Veil Removed as requested */}
+        {/* Layer 7: Atmospheric Veil (Restored but much more transparent) */}
+        <div 
+          data-layer="atmospheric-veil"
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(180deg, rgba(3,3,4,0.3) 0%, rgba(3,3,4,0.15) 50%, rgba(3,3,4,0.4) 100%)'
+          }}
+        />
       </div>
     </>
   );
