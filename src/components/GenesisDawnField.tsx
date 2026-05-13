@@ -59,12 +59,8 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
 
   // Intensity settings based on the current page
   const pageState = useMemo(() => {
-    if (currentPage === 'work') {
-      return { dawnOpacity: 0.65, dustOpacity: 0.6, raysOpacity: 0.5, starsOpacity: 0.8 };
-    } else if (currentPage === 'approach') {
-      return { dawnOpacity: 0.4, dustOpacity: 0.3, raysOpacity: 0.3, starsOpacity: 0.7 };
-    }
-    // Default to home page
+    // Removed the opacity reduction on 'work' and 'approach' pages 
+    // that created a "dark transparent background" effect.
     return { dawnOpacity: 1, dustOpacity: 1, raysOpacity: 1, starsOpacity: 1 };
   }, [currentPage]);
 
@@ -271,14 +267,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           ))}
         </div>
 
-        {/* Layer 7: Atmospheric Veil */}
-        <div 
-          data-layer="atmospheric-veil"
-          className="absolute inset-0"
-          style={{
-            background: 'linear-gradient(180deg, rgba(3,3,4,0.72) 0%, rgba(3,3,4,0.54) 42%, rgba(3,3,4,0.78) 100%)'
-          }}
-        />
+        {/* Layer 7: Atmospheric Veil Removed as requested */}
       </div>
     </>
   );
