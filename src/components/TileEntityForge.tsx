@@ -8,17 +8,17 @@ export default function TileEntityForge() {
     <div 
       className="relative w-full max-w-[360px] h-[360px] rounded-[32px] overflow-hidden flex items-center justify-center p-6"
       style={{
-        background: 'linear-gradient(180deg, #0A0B0E 0%, #050607 100%)',
-        border: '1px solid rgba(244,240,232,0.10)',
-        boxShadow: '0 32px 90px rgba(0,0,0,0.56), inset 0 1px 0 rgba(255,255,255,0.045)'
+        background: 'transparent',
+        border: 'none',
+        boxShadow: 'none'
       }}
     >
       {/* Inner Field */}
       <div 
         className="relative w-full h-full rounded-[20px] overflow-hidden"
         style={{
-          background: 'linear-gradient(180deg, #090A0D 0%, #050607 100%)',
-          border: '1px solid rgba(244,240,232,0.075)'
+          background: 'transparent',
+          border: 'none'
         }}
       >
         {/* Arcs replaced grid */}
