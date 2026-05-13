@@ -39,10 +39,10 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const factor = isMobile ? 0.4 : 1;
     return {
-      layerA: generateStars(Math.floor(200 * factor), [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.4, 0.9]),
-      layerB: generateStars(Math.floor(120 * factor), [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.6, 1.0]),
-      layerC: generateStars(Math.floor(60 * factor), [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.8, 1.0]),
-      layerD: generateStars(Math.floor(24 * factor), [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.9, 1.0]),
+      layerA: generateStars(Math.floor(200 * factor), [0.5, 1.2], ['#00BFFF', '#00A8CC', '#FFFFFF', '#F5A623', '#FFD700'], [0.4, 0.9]),
+      layerB: generateStars(Math.floor(120 * factor), [1.0, 1.8], ['#00A8CC', '#FFD700', '#F5A623', '#FFFFFF'], [0.6, 1.0]),
+      layerC: generateStars(Math.floor(60 * factor), [1.5, 2.5], ['#00BFFF', '#F5A623', '#FFD700'], [0.8, 1.0]),
+      layerD: generateStars(Math.floor(24 * factor), [2.0, 3.5], ['#00BFFF', '#FFD700', '#F5A623'], [0.9, 1.0]),
       dustParticles: generateDust(Math.floor(45 * factor))
     };
   }, []);
@@ -87,7 +87,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
-              boxShadow: star.size > 1.2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
+              boxShadow: star.size > 0.8 ? `0 0 ${star.size * 3}px ${star.color}, 0 0 ${star.size * 6}px ${star.color}${['#00BFFF', '#00A8CC'].includes(star.color) ? `, 0 0 ${star.size * 12}px ${star.color}` : ''}` : 'none',
               animation: reduceMotion ? 'none' : `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
               animationDelay: star.animationDelay,
             }}
@@ -104,7 +104,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
               left: `${star.left}%`,
               backgroundColor: star.color,
               opacity: star.opacity,
-              boxShadow: star.size > 1.2 ? `0 0 ${star.size * 2}px ${star.color}` : 'none',
+              boxShadow: star.size > 0.8 ? `0 0 ${star.size * 3}px ${star.color}, 0 0 ${star.size * 6}px ${star.color}${['#00BFFF', '#00A8CC'].includes(star.color) ? `, 0 0 ${star.size * 12}px ${star.color}` : ''}` : 'none',
               animation: reduceMotion ? 'none' : `twinkle ${star.animationDuration} ease-in-out infinite alternate`,
               animationDelay: star.animationDelay,
             }}
@@ -167,7 +167,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
         <div data-layer="cinematic-earth" className="absolute inset-0 overflow-hidden pointer-events-none transition-opacity duration-1000 flex items-center justify-center" style={{ opacity: pageState.starsOpacity * 0.9 }}>
 
           {/* Cinematic Sun / Corona behind Earth */}
-          <div className="absolute top-[5%] md:top-[12%] w-[120vw] h-[120vw] md:w-[70vw] md:h-[70vw] max-w-[1000px] max-h-[1000px] rounded-full flex items-center justify-center pointer-events-none will-change-transform opacity-90" style={{ animation: reduceMotion ? 'none' : 'dawn-breathe 28s ease-in-out infinite alternate-reverse' }}>
+          <div className="absolute top-[8%] md:top-[12%] left-1/2 -translate-x-1/2 w-[85vmin] h-[85vmin] md:w-[70vmin] md:h-[70vmin] max-w-[900px] max-h-[900px] rounded-full flex items-center justify-center pointer-events-none will-change-transform opacity-90" style={{ animation: reduceMotion ? 'none' : 'dawn-breathe 28s ease-in-out infinite alternate-reverse' }}>
             {/* Deep space corona glow */}
             <div className="absolute w-[150%] h-[150%] bg-[radial-gradient(circle_at_50%_10%,rgba(255,106,42,0.25)_0%,rgba(223,165,91,0.15)_30%,rgba(255,241,210,0.05)_60%,transparent_80%)] blur-[50px] mix-blend-screen" />
             {/* Intense hidden sun peaking from the top-center */}
@@ -175,7 +175,7 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           </div>
 
           <div
-            className="absolute top-[5%] md:top-[12%] w-[120vw] h-[120vw] md:w-[70vw] md:h-[70vw] max-w-[1000px] max-h-[1000px] rounded-full will-change-transform z-10"
+            className="absolute top-[8%] md:top-[12%] left-1/2 -translate-x-1/2 w-[85vmin] h-[85vmin] md:w-[70vmin] md:h-[70vmin] max-w-[900px] max-h-[900px] rounded-full will-change-transform z-10"
             style={{
               background: 'radial-gradient(circle at 50% 60%, #010101 40%, #030304 80%, #060708 100%)',
               boxShadow: `
