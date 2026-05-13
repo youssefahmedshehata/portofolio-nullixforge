@@ -15,7 +15,7 @@ export function Navigation({ currentPage, onNavigate }: NavigationProps) {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 w-full h-[64px] md:h-[72px] px-6 md:px-12 flex items-center justify-between border-b border-white/5 bg-void-black/80 backdrop-blur-md z-50">
+      <nav className="fixed top-0 left-0 w-full h-[64px] md:h-[72px] px-6 md:px-12 flex items-center justify-between border-b border-white/5 bg-void-black/80 z-50">
         <div className="flex items-center gap-1 cursor-pointer" onClick={() => handleNavigate('home')}>
           <span className="text-2xl font-bold tracking-tighter lowercase">nullix<span className="text-ember">.</span></span>
         </div>
@@ -27,18 +27,17 @@ export function Navigation({ currentPage, onNavigate }: NavigationProps) {
               <button
                 key={page}
                 onClick={() => handleNavigate(page)}
-                className={`transition-all duration-300 ${
-                  currentPage === page 
-                    ? 'text-ember' 
+                className={`transition-all duration-300 ${currentPage === page
+                    ? 'text-ember'
                     : 'text-text-muted opacity-40 hover:opacity-100 hover:text-text-main'
-                }`}
+                  }`}
               >
                 {page}
               </button>
             ))}
           </div>
-          
-          <button 
+
+          <button
             className="px-5 py-2 rounded-full border border-ember/40 text-[11px] uppercase tracking-widest font-bold bg-void-black hover:bg-ember hover:text-void-black transition-all"
             onClick={() => handleNavigate('home', { scrollToId: 'contact-form-section' })}
           >
@@ -47,7 +46,7 @@ export function Navigation({ currentPage, onNavigate }: NavigationProps) {
         </div>
 
         {/* Mobile Navigation Toggle */}
-        <button 
+        <button
           className="md:hidden flex items-center justify-center p-2 text-text-main hover:text-ember transition-colors"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
@@ -67,17 +66,16 @@ export function Navigation({ currentPage, onNavigate }: NavigationProps) {
               <button
                 key={page}
                 onClick={() => handleNavigate(page)}
-                className={`py-2 transition-all duration-300 w-full text-center ${
-                  currentPage === page 
-                    ? 'text-ember' 
+                className={`py-2 transition-all duration-300 w-full text-center ${currentPage === page
+                    ? 'text-ember'
                     : 'text-text-muted hover:text-text-main'
-                }`}
+                  }`}
               >
                 {page}
               </button>
             ))}
           </div>
-          <button 
+          <button
             className="w-full px-5 py-3 rounded-xl border border-ember/40 text-[11px] uppercase tracking-widest font-bold bg-ember text-void-black hover:bg-ember-deep transition-all"
             onClick={() => handleNavigate('home', { scrollToId: 'contact-form-section' })}
           >
