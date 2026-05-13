@@ -100,7 +100,7 @@ export function Work({ onNavigate }: WorkProps) {
       </section>
 
       {/* 3. CASE STUDY GRID */}
-      <section className="mb-40 bg-[#050608]/70 rounded-[36px] md:p-12 relative z-10 ">
+      <section className="mb-40 rounded-[36px] md:p-12 relative z-10 ">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {caseStudies.map((study, i) => (
             <div key={i} className="group p-8 rounded-[24px] bg-[linear-gradient(180deg,rgba(17,19,24,0.97),rgba(7,8,10,0.99))] border border-white/[0.11] hover:border-ember/30 transition-all duration-300 flex flex-col shadow-[0_24px_60px_rgba(0,0,0,0.6)]">

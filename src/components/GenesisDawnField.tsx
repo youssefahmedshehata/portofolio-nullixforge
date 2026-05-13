@@ -39,10 +39,10 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const factor = isMobile ? 0.4 : 1;
     return {
-      layerA: generateStars(Math.floor(200 * factor), [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.2, 0.6]),
-      layerB: generateStars(Math.floor(120 * factor), [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.4, 0.8]),
-      layerC: generateStars(Math.floor(60 * factor), [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.6, 1.0]),
-      layerD: generateStars(Math.floor(24 * factor), [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.6, 1.0]),
+      layerA: generateStars(Math.floor(200 * factor), [0.5, 1.2], ['#FFF1D2', '#FFE6B0', '#FFFFFF'], [0.4, 0.9]),
+      layerB: generateStars(Math.floor(120 * factor), [1.0, 1.8], ['#FFF1D2', '#DFA55B', '#FFFFFF'], [0.6, 1.0]),
+      layerC: generateStars(Math.floor(60 * factor), [1.5, 2.5], ['#FFFFFF', '#DFA55B'], [0.8, 1.0]),
+      layerD: generateStars(Math.floor(24 * factor), [2.0, 3.5], ['#FFF1D2', '#FFC46B', '#FF6A2A'], [0.9, 1.0]),
       dustParticles: generateDust(Math.floor(45 * factor))
     };
   }, []);
@@ -167,6 +167,48 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           {renderStarLayer(layerD, 'stellar', '180s')}
         </div>
 
+        {/* Layer 2.5: Cinematic Earth Eclipse */}
+        <div data-layer="cinematic-earth" className="absolute inset-0 overflow-hidden pointer-events-none transition-opacity duration-1000 flex items-center justify-center" style={{ opacity: pageState.starsOpacity * 0.9 }}>
+          
+          {/* Cinematic Sun / Corona behind Earth */}
+          <div className="absolute top-[5%] md:top-[12%] w-[120vw] h-[120vw] md:w-[70vw] md:h-[70vw] max-w-[1000px] max-h-[1000px] rounded-full flex items-center justify-center pointer-events-none will-change-transform opacity-90" style={{ animation: reduceMotion ? 'none' : 'dawn-breathe 28s ease-in-out infinite alternate-reverse' }}>
+             {/* Deep space corona glow */}
+             <div className="absolute w-[150%] h-[150%] bg-[radial-gradient(circle_at_50%_10%,rgba(255,106,42,0.25)_0%,rgba(223,165,91,0.15)_30%,rgba(255,241,210,0.05)_60%,transparent_80%)] blur-[50px] mix-blend-screen" />
+             {/* Intense hidden sun peaking from the top-center */}
+             <div className="absolute top-[-5%] w-[110%] h-[110%] bg-[radial-gradient(circle_at_50%_15%,rgba(255,241,210,0.9)_0%,rgba(223,165,91,0.6)_10%,rgba(255,106,42,0.25)_30%,transparent_60%)] blur-[25px] mix-blend-screen" />
+          </div>
+
+          <div 
+            className="absolute top-[5%] md:top-[12%] w-[120vw] h-[120vw] md:w-[70vw] md:h-[70vw] max-w-[1000px] max-h-[1000px] rounded-full will-change-transform z-10"
+            style={{
+              background: 'radial-gradient(circle at 50% 60%, #010101 40%, #030304 80%, #060708 100%)',
+              boxShadow: `
+                inset 0 16px 50px -10px rgba(223, 165, 91, 0.7), 
+                inset 0 3px 12px rgba(255, 241, 210, 1),
+                inset 0 -40px 120px rgba(255, 106, 42, 0.08),
+                0 -30px 150px -10px rgba(255, 106, 42, 0.4)
+              `,
+              animation: reduceMotion ? 'none' : 'dawn-breathe 30s ease-in-out infinite alternate',
+            }}
+          >
+            {/* Atmospheric glow catching the forge dawn */}
+            <div className="absolute inset-x-0 top-[-2px] h-[30%] rounded-t-full bg-[radial-gradient(ellipse_at_top,rgba(255,241,210,0.8)_0%,rgba(223,165,91,0.3)_30%,transparent_70%)] blur-[12px] mix-blend-screen" />
+            <div className="absolute inset-x-0 top-0 h-[50%] rounded-t-full bg-[radial-gradient(ellipse_at_top,rgba(255,241,210,0.4)_0%,rgba(223,165,91,0.2)_40%,transparent_70%)] blur-[20px]" />
+            <div className="absolute inset-x-0 bottom-0 h-[40%] rounded-b-full bg-[radial-gradient(ellipse_at_bottom,rgba(223,165,91,0.12)_0%,transparent_70%)] blur-[30px]" />
+            
+            {/* Abstract continents / city grid lights in shadow */}
+            <div 
+              className="absolute inset-0 rounded-full opacity-[0.08] mix-blend-screen"
+              style={{
+                backgroundImage: 'radial-gradient(circle at center, rgba(223,165,91,0.8) 0.5px, transparent 1px)',
+                backgroundSize: '16px 16px',
+                maskImage: 'radial-gradient(ellipse at 50% 80%, black 10%, transparent 60%)',
+                WebkitMaskImage: 'radial-gradient(ellipse at 50% 80%, black 10%, transparent 60%)'
+              }}
+            />
+          </div>
+        </div>
+
         {/* Layer 5: System Orbits / Signal Arcs */}
         <div data-layer="system-orbits" className="absolute inset-0 overflow-hidden transition-opacity duration-1000" style={{ opacity: pageState.starsOpacity }}>
           {/* Subtle orbital ring */}
@@ -206,33 +248,8 @@ export function GenesisDawnField({ currentPage }: { currentPage: string }) {
           />
         </div>
 
-        {/* Layer 4: Volumetric Light Rays (CSS emulation) */}
-        <div data-layer="volumetric-rays" className="absolute inset-0 overflow-hidden transition-opacity duration-1000" style={{ opacity: pageState.raysOpacity * 0.6 }}>
-          <div 
-            className="absolute left-1/2 bottom-0 w-[4px] h-[50vh] origin-bottom -translate-x-1/2 will-change-transform-opacity"
-            style={{
-              background: 'linear-gradient(to top, rgba(255,241,210,0.06), transparent)',
-              transform: 'translate3d(-50%, 0, 0) rotate(-15deg)',
-              animation: reduceMotion ? 'none' : 'rays-sway 32s ease-in-out infinite alternate'
-            }}
-          />
-          <div 
-            className="absolute left-1/2 bottom-0 w-[12px] h-[70vh] origin-bottom -translate-x-1/2 will-change-transform-opacity"
-            style={{
-              background: 'radial-gradient(ellipse at bottom, rgba(223,165,91,0.04) 0%, transparent 70%)',
-              transform: 'translate3d(-50%, 0, 0) rotate(8deg)',
-              animation: reduceMotion ? 'none' : 'rays-sway 45s ease-in-out infinite alternate-reverse'
-            }}
-          />
-          <div 
-            className="absolute left-1/2 bottom-0 w-[24px] h-[60vh] origin-bottom -translate-x-1/2 will-change-transform-opacity"
-            style={{
-              background: 'radial-gradient(ellipse at bottom, rgba(255,106,42,0.03) 0%, transparent 70%)',
-              transform: 'translate3d(-50%, 0, 0) rotate(-25deg)',
-              animation: reduceMotion ? 'none' : 'rays-sway 28s ease-in-out infinite alternate'
-            }}
-          />
-        </div>
+        {/* Layer 4: Volumetric Light Rays Removed by Request */}
+
 
         {/* Layer 6: Cinematic Dust */}
         <div data-layer="light-dust" className="absolute inset-x-0 bottom-[10vh] h-[40vh] pointer-events-none transition-opacity duration-1000" style={{ opacity: pageState.dustOpacity }}>
