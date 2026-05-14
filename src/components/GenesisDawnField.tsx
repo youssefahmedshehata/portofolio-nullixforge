@@ -37,7 +37,7 @@ const generateDust = (count: number) => {
 export function GenesisDawnField({ currentPage }: { currentPage: string }) {
   const { layerA, layerB, layerC, layerD, dustParticles } = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const factor = isMobile ? 0.4 : 1;
+    const factor = isMobile ? 0.17 : 0.70;
     return {
       layerA: generateStars(Math.floor(200 * factor), [0.5, 1.2], ['#00BFFF', '#00A8CC', '#FFFFFF', '#F5A623', '#FFD700'], [0.4, 0.9]),
       layerB: generateStars(Math.floor(120 * factor), [1.0, 1.8], ['#00A8CC', '#FFD700', '#F5A623', '#FFFFFF'], [0.6, 1.0]),
