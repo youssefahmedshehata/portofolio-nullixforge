@@ -34,7 +34,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-white selection:text-black flex flex-col">
       <SiteHeader currentPath={hash} />
-      <main className="flex-grow overflow-x-hidden">
+      <main className="flex-grow">
         <Page />
       </main>
       <SiteFooter />

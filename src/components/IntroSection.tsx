@@ -2,17 +2,11 @@ import { motion } from 'motion/react';
 
 export function IntroSection() {
   return (
-    <section className="relative pt-[64px] pb-[120px] px-6 md:px-[24px]">
+    <section className="relative py-[64px] px-6 md:px-[24px]">
       {/* Futuristic background gradient */}
       <div className="absolute inset-0 z-0 pointer-events-none flex justify-center items-center opacity-50">
         <div className="absolute w-[1000px] h-[500px] bg-gradient-to-r from-purple-600/60 via-pink-600/60 to-red-600/60 blur-[140px] rounded-full mix-blend-screen" />
         <div className="absolute w-[600px] h-[300px] bg-gradient-to-tr from-purple-500/80 via-pink-500/80 to-red-500/80 blur-[100px] rounded-full mix-blend-screen opacity-80" />
-      </div>
-
-      {/* Seamless interwoven textile transition bridging to WorkSection */}
-      <div className="absolute -bottom-[250px] left-1/2 -translate-x-1/2 w-full max-w-[1200px] h-[500px] z-0 pointer-events-none flex justify-center items-center opacity-70">
-        <div className="absolute w-[800px] h-[250px] bg-gradient-to-b from-pink-600/50 via-fuchsia-500/40 to-emerald-500/50 blur-[120px] rounded-[100%] mix-blend-screen translate-y-12" />
-        <div className="absolute w-[1000px] h-[150px] bg-gradient-to-r from-purple-500/30 via-emerald-400/40 to-lime-500/30 blur-[100px] rounded-full mix-blend-screen" />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto">

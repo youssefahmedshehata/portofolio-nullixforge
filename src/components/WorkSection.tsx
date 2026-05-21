@@ -23,7 +23,7 @@ const SYSTEMS = [
 
 export function WorkSection() {
   return (
-    <section id="work" className="py-24 md:py-32 px-6 md:px-12 relative font-sans">
+    <section id="work" className="py-24 md:py-32 px-6 md:px-12 bg-[#020804] border-t border-white/10 relative font-sans overflow-hidden">
       {/* Natural green gradient background */}
       <div className="absolute inset-0 z-0 pointer-events-none flex justify-center items-center opacity-80 border-0">
         <div className="absolute w-[800px] h-[450px] bg-gradient-to-r from-emerald-600/70 via-lime-600/60 to-green-600/70 blur-[160px] rounded-full translate-y-12" />
@@ -31,7 +31,7 @@ export function WorkSection() {
         <div className="absolute w-[400px] h-[400px] bg-gradient-to-bl from-green-400/60 via-emerald-400/60 to-teal-400/60 blur-[140px] rounded-full opacity-80" />
       </div>
 
-
+      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-white/10 to-transparent z-10" />
       <div className="max-w-7xl mx-auto relative z-10">
         <SectionHeader eyebrow="Infrastructure" title="Deployments that power mission-critical operations." />
         
