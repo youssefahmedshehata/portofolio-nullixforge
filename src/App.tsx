@@ -1,49 +1,43 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { useState, useEffect } from 'react';
-import { GenesisDawnField } from './components/GenesisDawnField';
-import { Navigation } from './components/Navigation';
-import { Footer } from './components/Footer';
-import { Home } from './pages/Home';
-import { Work } from './pages/Work';
-import { Approach } from './pages/Approach';
+import { SiteHeader } from './components/SiteHeader';
+import { SiteFooter } from './components/SiteFooter';
+import { HomePage } from './pages/HomePage';
+import { WorkPage } from './pages/WorkPage';
+import { ApproachPage } from './pages/ApproachPage';
+import { ServicesPage } from './pages/ServicesPage';
+import { ContactPage } from './pages/ContactPage';
+
+function useHashLocation() {
+  const [loc, setLoc] = useState(window.location.hash || '#/');
+  useEffect(() => {
+    const handler = () => setLoc(window.location.hash || '#/');
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+  return loc;
+}
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState('home');
-  const [routeData, setRouteData] = useState<any>(null);
-
-  // Simple scroll to top on page change unless routeData tells us otherwise
-  useEffect(() => {
-    if (!routeData?.scrollToId) {
-      window.scrollTo({ top: 0, behavior: 'instant' });
-    }
-  }, [currentPage, routeData]);
-
-  const handleNavigate = (page: string, data?: any) => {
-    setCurrentPage(page);
-    setRouteData(data || null);
-  };
-
-  const renderPage = () => {
-    switch(currentPage) {
-      case 'home': return <Home initialService={routeData?.service} shouldScrollToForm={routeData?.scrollToId === 'contact-form-section'} />;
-      case 'work': return <Work onNavigate={handleNavigate} />;
-      case 'approach': return <Approach />; // You can add onNavigate here if needed later
-      default: return <Home />;
-    }
-  };
+  const hash = useHashLocation();
+  
+  let Page = HomePage;
+  if (hash === '#/work') Page = WorkPage;
+  else if (hash === '#/approach') Page = ApproachPage;
+  else if (hash === '#/services') Page = ServicesPage;
+  else if (hash === '#/contact') Page = ContactPage;
 
   return (
-    <>
-      <GenesisDawnField currentPage={currentPage} />
-      <div className="min-h-screen text-text-main flex flex-col font-sans selection:bg-ember-deep selection:text-text-main relative w-full overflow-x-hidden">
-
-        <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
-      
-      <main className="flex-grow flex flex-col relative z-10 w-full animate-in fade-in duration-700">
-        {renderPage()}
+    <div className="min-h-screen bg-black text-white font-sans selection:bg-white selection:text-black flex flex-col">
+      <SiteHeader currentPath={hash} />
+      <main className="flex-grow">
+        <Page />
       </main>
-      
-      <Footer />
-      </div>
-    </>
+      <SiteFooter />
+    </div>
   );
 }
