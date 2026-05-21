@@ -1,6 +1,6 @@
 {
-  "name": "nullix",
-  "description": "Premium portfolio website for nullixforge. The organized void that builds everything silently.",
+  "name": "NullixForge",
+  "description": "Institutional Dark Precision technology systems website.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
