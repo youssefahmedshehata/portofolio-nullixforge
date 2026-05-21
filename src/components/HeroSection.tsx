@@ -9,6 +9,12 @@ export function HeroSection() {
         <div className="absolute inset-0 bg-gradient-to-bl from-[#ff4d4d] via-[#f9cb28] to-transparent rounded-full mix-blend-screen opacity-50 blur-[80px]" />
       </div>
 
+      {/* Bridging woven textile gradient to Intro section */}
+      <div className="absolute top-[50%] left-1/2 w-[120vw] max-w-[1400px] h-[80vh] -translate-x-1/2 opacity-50 pointer-events-none select-none mix-blend-screen z-0 blur-[130px]">
+        <div className="absolute inset-0 bg-gradient-to-b from-[#ff0080]/40 via-purple-600/50 to-pink-600/40 rounded-full mix-blend-screen opacity-60" />
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#7928ca]/40 to-transparent rounded-full mix-blend-screen opacity-50" />
+      </div>
+
       <div className="max-w-7xl mx-auto w-full relative z-10 flex flex-col items-center text-center">
         <motion.h1 
           initial={{ opacity: 0, y: 20 }}

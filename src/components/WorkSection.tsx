@@ -24,12 +24,14 @@ const SYSTEMS = [
 export function WorkSection() {
   return (
     <section id="work" className="py-24 md:py-32 px-6 md:px-12 relative font-sans">
-      {/* Natural green gradient blending seamlessly with previous section's red/pink */}
-      <div className="absolute -top-[50%] bottom-0 left-0 right-0 z-0 pointer-events-none flex justify-center items-center opacity-80 mix-blend-screen -translate-y-[10%]">
-        <div className="absolute w-[1200px] h-[800px] bg-gradient-to-b from-red-600/50 via-emerald-600/50 to-green-600/40 blur-[180px] rounded-full mix-blend-screen" />
-        <div className="absolute w-[900px] h-[600px] bg-gradient-to-tr from-pink-500/40 via-teal-500/60 to-lime-500/50 blur-[160px] rounded-full mix-blend-screen opacity-90 translate-y-[10%]" />
-        <div className="absolute w-[600px] h-[500px] bg-gradient-to-bl from-emerald-400/50 via-green-400/60 to-teal-400/50 blur-[140px] rounded-full mix-blend-screen opacity-80 translate-y-[20%]" />
+      {/* Natural green gradient background */}
+      <div className="absolute inset-0 z-0 pointer-events-none flex justify-center items-center opacity-80 border-0">
+        <div className="absolute w-[800px] h-[450px] bg-gradient-to-r from-emerald-600/70 via-lime-600/60 to-green-600/70 blur-[160px] rounded-full translate-y-12" />
+        <div className="absolute w-[600px] h-[350px] bg-gradient-to-tr from-teal-500/80 via-emerald-500/70 to-lime-500/80 blur-[120px] rounded-full opacity-90 translate-y-8" />
+        <div className="absolute w-[400px] h-[400px] bg-gradient-to-bl from-green-400/60 via-emerald-400/60 to-teal-400/60 blur-[140px] rounded-full opacity-80" />
       </div>
+
+
       <div className="max-w-7xl mx-auto relative z-10">
         <SectionHeader eyebrow="Infrastructure" title="Deployments that power mission-critical operations." />
         

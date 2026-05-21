@@ -8,7 +8,7 @@ import { motion } from 'motion/react';
 
 export function HomePage() {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} className="w-full flex flex-col overflow-x-hidden">
       <HeroSection />
       <IntroSection />
       <WorkSection />
