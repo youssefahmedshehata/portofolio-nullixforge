@@ -44,11 +44,8 @@ export function SiteHeader({ currentPath = '#/' }: { currentPath?: string }) {
     >
       <div className="flex items-center justify-between max-w-[1200px] mx-auto">
         <div className="flex items-center gap-[48px]">
-          <a href="#/" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-[8px] hover:opacity-80 transition-opacity relative z-50">
-            <svg width="24" height="24" viewBox="0 0 76 65" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor"/>
-            </svg>
-            <span className="font-normal text-[20px] text-white">Nullix</span>
+          <a href="#/" onClick={() => setMobileMenuOpen(false)} className="flex items-center hover:opacity-80 transition-opacity relative z-50">
+            <img src="/nullix-logo-white-transparent.png" alt="Nullix" className="h-[24px] w-auto" />
           </a>
           
           <nav className="hidden md:flex items-center gap-[24px] text-[14px] leading-[20px] font-normal text-[#dadbdf]">

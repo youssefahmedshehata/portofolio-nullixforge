@@ -11,7 +11,7 @@ export function HeroSection() {
           transition={{ duration: 0.8, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
           className="text-[48px] md:text-[72px] lg:text-[96px] leading-[1] tracking-[-2.4px] text-white max-w-[900px] mb-[24px] font-normal"
         >
-          Institutional technology orchestration.
+          Engineered from zero.
         </motion.h1>
         
         <motion.p
@@ -20,7 +20,7 @@ export function HeroSection() {
           transition={{ duration: 0.8, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
           className="text-[#dadbdf] text-[18px] max-w-[600px] mb-[48px] font-normal leading-[28px]"
         >
-          We build infrastructure that scales with quiet confidence. Precise, calm, reliable digital systems for enterprise teams.
+          NullixForge architects web platforms, custom applications, and AI infrastructure from the ground up. We eliminate unnecessary complexity to deliver scalable architecture, intuitive interfaces, and high-performance digital systems tailored to your enterprise.
         </motion.p>
         
         <motion.div 
@@ -29,12 +29,12 @@ export function HeroSection() {
           transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
           className="flex flex-col sm:flex-row items-center gap-[12px]"
         >
-          <button className="flex items-center justify-center px-[24px] py-[8px] rounded-full bg-white border border-white text-[#0a0a0a] text-[14px] leading-[20px] font-normal transition-colors cursor-pointer w-full sm:w-auto hover:bg-[#fafaf7]">
-            Sign up now
-          </button>
-          <button className="flex items-center justify-center px-[24px] py-[8px] rounded-full bg-transparent border border-white/25 text-white text-[14px] leading-[20px] font-normal transition-colors hover:bg-white/5 cursor-pointer w-full sm:w-auto">
-            Read announcement
-          </button>
+          <a href="#/contact" className="flex items-center justify-center px-[24px] py-[8px] rounded-full bg-white border border-white text-[#0a0a0a] text-[14px] leading-[20px] font-normal transition-colors cursor-pointer w-full sm:w-auto hover:bg-[#fafaf7]">
+            Start a Project
+          </a>
+          <a href="#/contact" className="flex items-center justify-center px-[24px] py-[8px] rounded-full bg-transparent border border-white/25 text-white text-[14px] leading-[20px] font-normal transition-colors hover:bg-white/5 cursor-pointer w-full sm:w-auto">
+            Our Methodology
+          </a>
         </motion.div>
       </div>
     </section>
