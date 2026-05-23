@@ -1,5 +1,7 @@
 import { HeroSection } from '../components/HeroSection';
 import { IntroSection } from '../components/IntroSection';
+import { CliSection } from '../components/CliSection';
+import { ResearchSection } from '../components/ResearchSection';
 import { WorkSection } from '../components/WorkSection';
 import { ApproachSection } from '../components/ApproachSection';
 import { ServicesSection } from '../components/ServicesSection';
@@ -11,6 +13,8 @@ export function HomePage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       <HeroSection />
       <IntroSection />
+      <CliSection />
+      <ResearchSection />
       <WorkSection />
       <ApproachSection />
       <ServicesSection />

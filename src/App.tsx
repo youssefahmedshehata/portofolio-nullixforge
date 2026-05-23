@@ -32,7 +32,7 @@ export default function App() {
   else if (hash === '#/contact') Page = ContactPage;
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans selection:bg-white selection:text-black flex flex-col">
+    <div className="min-h-screen bg-[#fafafa] text-[#171717] font-sans selection:bg-[#171717] selection:text-[#fafafa] flex flex-col">
       <SiteHeader currentPath={hash} />
       <main className="flex-grow">
         <Page />

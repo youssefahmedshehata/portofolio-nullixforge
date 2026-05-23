@@ -21,7 +21,7 @@ export function SectionHeader({ eyebrow, title, children }: Props) {
           {eyebrow}
         </span>
       </div>
-      <h2 className="font-sans text-[32px] md:text-[40px] leading-tight font-semibold tracking-[-0.04em] text-white mb-6">
+      <h2 className="font-sans text-[32px] md:text-[40px] leading-tight font-semibold tracking-[-0.04em] text-[#171717] mb-6">
         {title}
       </h2>
       {children && (

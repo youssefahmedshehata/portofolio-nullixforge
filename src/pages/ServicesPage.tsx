@@ -38,25 +38,25 @@ export function ServicesPage() {
         description="We do not offer generic development hours. We offer precision outcomes. Our engagements are structured around clear architectural deliverables."
       />
       
-      <section className="py-24 px-6 md:px-12 bg-black border-b border-white/10">
+      <section className="py-24 px-6 md:px-12 bg-[#fafafa] border-b border-black/5">
         <div className="max-w-7xl mx-auto space-y-24">
           {SERVICES_DETAILED.map((svc) => (
-            <div key={svc.category} className="border-t border-white/10 pt-12 flex flex-col md:flex-row gap-12 lg:gap-24">
+            <div key={svc.category} className="border-t border-black/5 pt-12 flex flex-col md:flex-row gap-12 lg:gap-24">
               <div className="md:w-1/3">
-                <h3 className="text-4xl text-white tracking-[-0.02em] font-medium mb-4">{svc.category}</h3>
+                <h3 className="text-4xl text-[#171717] tracking-[-0.02em] font-medium mb-4">{svc.category}</h3>
               </div>
               <div className="md:w-2/3 grid grid-cols-1 md:grid-cols-2 gap-12">
                 <div>
-                  <h4 className="font-mono text-xs text-neutral-400 mb-3 uppercase tracking-wider">Context</h4>
-                  <p className="text-neutral-400 leading-relaxed text-sm">{svc.context}</p>
+                  <h4 className="font-mono text-xs text-neutral-500 mb-3 uppercase tracking-wider">Context</h4>
+                  <p className="text-neutral-500 leading-relaxed text-sm">{svc.context}</p>
                 </div>
                 <div>
-                  <h4 className="font-mono text-xs text-neutral-400 mb-3 uppercase tracking-wider">Deliverable</h4>
-                  <p className="text-neutral-400 leading-relaxed text-sm">{svc.deliverable}</p>
+                  <h4 className="font-mono text-xs text-neutral-500 mb-3 uppercase tracking-wider">Deliverable</h4>
+                  <p className="text-neutral-500 leading-relaxed text-sm">{svc.deliverable}</p>
                 </div>
-                <div className="md:col-span-2 pt-4 border-t border-white/10">
-                  <h4 className="font-mono text-xs text-neutral-400 mb-3 uppercase tracking-wider">Expected Output</h4>
-                  <p className="text-white text-base leading-relaxed tracking-tight">{svc.output}</p>
+                <div className="md:col-span-2 pt-4 border-t border-black/5">
+                  <h4 className="font-mono text-xs text-neutral-500 mb-3 uppercase tracking-wider">Expected Output</h4>
+                  <p className="text-[#171717] text-base leading-relaxed tracking-tight">{svc.output}</p>
                 </div>
               </div>
             </div>
