@@ -21,21 +21,21 @@ const SERVICES = [
 
 export function ServicesSection() {
   return (
-    <section id="services" className="py-24 md:py-32 px-6 md:px-12 border-t border-black/5 bg-[#fafafa]">
-      <div className="max-w-7xl mx-auto">
+    <section id="services" className="py-[64px] pb-[128px] px-6 md:px-[24px] border-t border-[#212327] bg-[#0a0a0a]">
+      <div className="max-w-[1200px] mx-auto">
         <SectionHeader eyebrow="Templates" title="Surgical intervention across the stack." />
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-[24px]">
           {SERVICES.map((service, i) => (
-            <div key={i} className="relative flex flex-col justify-between overflow-hidden bg-white p-8 md:p-12 rounded-2xl border border-black/5 hover:border-black/20 transition-colors cursor-pointer">
-              <h3 className="text-[24px] md:text-[32px] font-semibold tracking-[-0.03em] text-[#171717] mb-6">{service.title}</h3>
-              <p className="text-[16px] text-neutral-500 font-normal leading-relaxed">{service.description}</p>
+            <div key={i} className="flex flex-col bg-[#191919] p-[24px] rounded-[8px] border border-[#212327]">
+              <h3 className="text-[32px] leading-[36px] font-normal tracking-[-0.6px] text-white mb-[16px]">{service.title}</h3>
+              <p className="text-[16px] leading-[24px] text-[#dadbdf] font-normal">{service.description}</p>
             </div>
           ))}
         </div>
 
-        <div className="mt-16 flex justify-start">
-          <a href="#/services" className="inline-flex items-center px-6 py-2.5 rounded-full bg-[#171717] text-white text-[14px] font-medium hover:bg-neutral-800 transition-colors">
+        <div className="mt-[48px] flex justify-start">
+          <a href="#/services" className="inline-flex items-center justify-center px-[24px] py-[8px] rounded-full border border-white/25 bg-transparent text-white text-[14px] leading-[20px] font-normal transition-colors hover:bg-white/5 cursor-pointer">
             View Templates
           </a>
         </div>

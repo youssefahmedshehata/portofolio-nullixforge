@@ -39,18 +39,18 @@ export function ApproachPage() {
         description="We believe that software must be predictable. We reject the 'move fast and break things' culture when operating in mission-critical environments. We move correctly, and we build things that do not break."
       />
       
-      <section className="py-24 px-6 md:px-12 bg-[#fafafa] border-b border-black/5">
+      <section className="py-24 px-6 md:px-12 bg-[#0a0a0a] border-b border-[#212327]">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-16">
           <div className="lg:w-1/3">
-            <h3 className="text-4xl tracking-[-0.03em] font-semibold text-[#171717] sticky top-32">Methodology</h3>
+            <h3 className="text-4xl tracking-[-0.03em] font-semibold text-white sticky top-32">Methodology</h3>
           </div>
           <div className="lg:w-2/3 space-y-16 lg:space-y-24">
             {METHODOLOGY.map((m) => (
               <div key={m.step} className="flex gap-8">
-                <div className="font-mono text-lg text-neutral-500 pt-1">{m.step}</div>
+                <div className="font-mono text-lg text-[#7d8187] pt-1">{m.step}</div>
                 <div>
-                  <h4 className="text-[32px] text-[#171717] mb-4 tracking-[-0.03em] font-semibold">{m.title}</h4>
-                  <p className="text-[16px] text-neutral-500 font-normal leading-relaxed">{m.text}</p>
+                  <h4 className="text-[32px] text-white mb-4 tracking-[-0.03em] font-semibold">{m.title}</h4>
+                  <p className="text-[16px] text-[#7d8187] font-normal leading-relaxed">{m.text}</p>
                 </div>
               </div>
             ))}
@@ -58,30 +58,30 @@ export function ApproachPage() {
         </div>
       </section>
 
-      <section className="py-24 px-6 md:px-12 bg-[#fafafa]">
+      <section className="py-24 px-6 md:px-12 bg-[#0a0a0a]">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-16">
           <div className="lg:w-1/3">
-            <h3 className="text-4xl tracking-[-0.03em] font-semibold text-[#171717] sticky top-32">Decision Framework</h3>
+            <h3 className="text-4xl tracking-[-0.03em] font-semibold text-white sticky top-32">Decision Framework</h3>
           </div>
           <div className="lg:w-2/3 grid grid-cols-1 md:grid-cols-2 gap-12">
-            <div className="p-8 border border-black/5 rounded-xl bg-white">
-              <h4 className="font-mono text-[12px] text-neutral-500 mb-6 flex items-center gap-2">
+            <div className="p-8 border border-[#212327] rounded-xl bg-[#0a0a0a]">
+              <h4 className="font-mono text-[12px] text-[#7d8187] mb-6 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-[#50e3c2] rounded-full" />
                 What We Accept
               </h4>
-              <ul className="space-y-4 text-neutral-500 font-normal list-disc list-inside">
+              <ul className="space-y-4 text-[#7d8187] font-normal list-disc list-inside">
                 <li>High-complexity data panels</li>
                 <li>Real-time telemetry systems</li>
                 <li>Enterprise infrastructure migrations</li>
                 <li>Strictly typed, decoupled environments</li>
               </ul>
             </div>
-            <div className="p-8 border border-black/5 rounded-xl bg-white">
-              <h4 className="font-mono text-[12px] text-neutral-500 mb-6 flex items-center gap-2">
+            <div className="p-8 border border-[#212327] rounded-xl bg-[#0a0a0a]">
+              <h4 className="font-mono text-[12px] text-[#7d8187] mb-6 flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-[#ff0080] rounded-full" />
                 What We Reject
               </h4>
-              <ul className="space-y-4 text-neutral-500 font-normal list-disc list-inside">
+              <ul className="space-y-4 text-[#7d8187] font-normal list-disc list-inside">
                 <li>Marketing micro-sites</li>
                 <li>Unscoped "agile" experiments</li>
                 <li>Bloated monolithic rewrites</li>

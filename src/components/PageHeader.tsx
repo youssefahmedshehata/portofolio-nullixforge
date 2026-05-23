@@ -9,9 +9,8 @@ interface Props {
 
 export function PageHeader({ eyebrow, title, description }: Props) {
   return (
-    <section className="pt-48 pb-24 px-6 md:px-12 border-b border-black/5 bg-[#fafafa] relative">
-      <div className="absolute inset-0 bg-gradient-to-b from-black/[0.02] to-transparent pointer-events-none" />
-      <div className="max-w-7xl mx-auto relative z-10">
+    <section className="pt-32 md:pt-48 pb-16 md:pb-24 px-4 md:px-6 bg-[#0a0a0a] border-b border-[#212327]">
+      <div className="max-w-[1200px] mx-auto">
         <SectionHeader eyebrow={eyebrow} title={title}>
           {description}
         </SectionHeader>

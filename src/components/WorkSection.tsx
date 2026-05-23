@@ -23,28 +23,27 @@ const SYSTEMS = [
 
 export function WorkSection() {
   return (
-    <section id="work" className="py-24 md:py-32 px-6 md:px-12 bg-white border-t border-black/5 relative font-sans overflow-hidden">
-      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-black/5 to-transparent z-10" />
-      <div className="max-w-7xl mx-auto relative z-10">
+    <section id="work" className="py-[64px] pb-[128px] px-6 md:px-[24px] bg-[#0a0a0a] border-t border-[#212327]">
+      <div className="max-w-[1200px] mx-auto">
         <SectionHeader eyebrow="Infrastructure" title="Deployments that power mission-critical operations." />
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-[24px]">
           {SYSTEMS.map((system) => (
-            <div key={system.id} className="relative flex flex-col p-8 border border-black/5 bg-[#fafafa]/80 backdrop-blur-3xl rounded-2xl hover:border-emerald-500/40 transition-colors duration-300 cursor-pointer overflow-hidden">
-              <div className="flex items-center justify-between mb-8">
-                <span className="font-mono font-normal text-[13px] text-neutral-500">{system.id}</span>
-                <span className="font-mono font-medium text-[12px] text-[#171717] px-3 py-1 border border-black/5 bg-black/5 rounded-full">{system.metric}</span>
+            <div key={system.id} className="relative flex flex-col p-[24px] border border-[#212327] bg-[#191919] rounded-[8px] overflow-hidden">
+              <div className="flex items-center justify-between mb-[32px]">
+                <span className="font-mono font-normal text-[12px] tracking-[1.2px] text-[#dadbdf] uppercase">{system.id}</span>
+                <span className="font-mono font-normal text-[12px] tracking-[1.2px] text-white px-[8px] py-[4px] border border-[#212327] bg-[#0a0a0a] rounded-full uppercase">{system.metric}</span>
               </div>
               <div className="flex flex-col mt-auto">
-                <h3 className="font-sans text-[24px] font-semibold tracking-[-0.03em] text-[#171717] mb-2">{system.title}</h3>
-                <span className="font-sans font-normal text-[16px] text-neutral-500">{system.type}</span>
+                <h3 className="text-[24px] leading-[32px] font-normal tracking-[-0.6px] text-white mb-[8px]">{system.title}</h3>
+                <span className="text-[16px] leading-[24px] font-normal text-[#dadbdf]">{system.type}</span>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="mt-16 flex justify-start">
-          <a href="#/work" className="font-sans inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#171717] text-white text-[14px] font-medium hover:bg-neutral-800 transition-colors">
+        <div className="mt-[48px] flex justify-start">
+          <a href="#/work" className="inline-flex items-center justify-center px-[24px] py-[8px] rounded-full border border-white/25 bg-transparent text-white text-[14px] leading-[20px] font-normal transition-colors hover:bg-white/5 cursor-pointer">
             View Documentation
           </a>
         </div>

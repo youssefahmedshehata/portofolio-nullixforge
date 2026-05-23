@@ -10,7 +10,7 @@ export function SiteHeader({ currentPath = '#/' }: { currentPath?: string }) {
     
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      if (currentScrollY > lastScrollY && currentScrollY > 50) {
+      if (currentScrollY < lastScrollY && currentScrollY > 50) {
         setIsHidden(true);
       } else {
         setIsHidden(false);
@@ -28,7 +28,7 @@ export function SiteHeader({ currentPath = '#/' }: { currentPath?: string }) {
       <a 
         href={path} 
         onClick={() => setMobileMenuOpen(false)}
-        className={`${isActive ? 'text-[#171717]' : 'text-neutral-500 hover:text-[#171717]'} transition-colors`}
+        className={`${isActive ? 'text-white' : 'text-[#dadbdf] hover:text-white'} transition-colors`}
       >
         {label}
       </a>
@@ -40,35 +40,35 @@ export function SiteHeader({ currentPath = '#/' }: { currentPath?: string }) {
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: isHidden ? '-100%' : 0 }}
       transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="fixed top-0 inset-x-0 z-50 px-6 py-4 border-b border-black/5 bg-white"
+      className="fixed top-0 inset-x-0 z-50 px-[24px] py-[16px] bg-[#0a0a0a]"
     >
-      <div className="flex items-center justify-between max-w-7xl mx-auto">
-        <div className="flex items-center gap-8">
-          <a href="#/" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2 hover:opacity-80 transition-opacity relative z-50">
+      <div className="flex items-center justify-between max-w-[1200px] mx-auto">
+        <div className="flex items-center gap-[48px]">
+          <a href="#/" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-[8px] hover:opacity-80 transition-opacity relative z-50">
             <svg width="24" height="24" viewBox="0 0 76 65" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor"/>
             </svg>
-            <span className="font-semibold tracking-tight text-xl text-[#171717] ml-2">Nullix</span>
+            <span className="font-normal text-[20px] text-white">Nullix</span>
           </a>
           
-          <nav className="hidden md:flex items-center gap-6 text-[14px] font-medium text-neutral-500">
+          <nav className="hidden md:flex items-center gap-[24px] text-[14px] leading-[20px] font-normal text-[#dadbdf]">
             {navItem('#/work', 'Showcase')}
             {navItem('#/approach', 'Docs')}
             {navItem('#/services', 'Templates')}
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
-          <a href="#/contact" onClick={() => setMobileMenuOpen(false)} className="hidden md:flex px-4 py-2 rounded-md border border-transparent bg-[#171717] text-white text-[14px] font-medium hover:bg-[#333333] transition-colors relative z-50">
+        <div className="flex items-center gap-[16px]">
+          <a href="#/contact" onClick={() => setMobileMenuOpen(false)} className="hidden md:flex items-center justify-center px-[24px] py-[8px] rounded-full bg-white border border-white text-[#0a0a0a] text-[14px] leading-[20px] font-normal transition-colors hover:bg-[#fafaf7] relative z-50">
             Sign Up
           </a>
           <button 
-            className="md:hidden flex flex-col justify-center gap-1.5 w-6 h-6 relative z-50"
+            className="md:hidden flex flex-col justify-center gap-1.5 w-6 h-6 relative z-50 cursor-pointer"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
-            <div className={`w-full h-px bg-[#171717] transition-transform ${mobileMenuOpen ? 'rotate-45 translate-y-2' : ''}`} />
-            <div className={`w-full h-px bg-[#171717] transition-opacity ${mobileMenuOpen ? 'opacity-0' : ''}`} />
-            <div className={`w-full h-px bg-[#171717] transition-transform ${mobileMenuOpen ? '-rotate-45 -translate-y-1' : ''}`} />
+            <div className={`w-full h-px bg-white transition-transform ${mobileMenuOpen ? 'rotate-45 translate-y-2' : ''}`} />
+            <div className={`w-full h-px bg-white transition-opacity ${mobileMenuOpen ? 'opacity-0' : ''}`} />
+            <div className={`w-full h-px bg-white transition-transform ${mobileMenuOpen ? '-rotate-45 -translate-y-1' : ''}`} />
           </button>
         </div>
       </div>
@@ -79,9 +79,9 @@ export function SiteHeader({ currentPath = '#/' }: { currentPath?: string }) {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: '100vh' }}
             exit={{ opacity: 0, height: 0 }}
-            className="fixed inset-0 bg-white pt-24 px-6 md:hidden flex flex-col z-40"
+            className="fixed inset-0 bg-[#0a0a0a] pt-[96px] px-[24px] md:hidden flex flex-col z-40"
           >
-            <nav className="flex flex-col gap-8 text-2xl font-medium mt-12">
+            <nav className="flex flex-col gap-[32px] text-[24px] leading-[32px] font-normal tracking-[-0.6px] mt-[48px]">
               {navItem('#/work', 'Showcase')}
               {navItem('#/approach', 'Docs')}
               {navItem('#/services', 'Templates')}

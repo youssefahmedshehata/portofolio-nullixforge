@@ -14,18 +14,16 @@ export function SectionHeader({ eyebrow, title, children }: Props) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-10%" }}
       transition={{ duration: 0.6 }}
-      className="mb-16 md:mb-24 max-w-3xl"
+      className="mb-[64px] max-w-[800px]"
     >
-      <div className="flex items-center gap-4 mb-6">
-        <span className="font-mono font-medium text-[12px] text-[#a1a1a1]">
-          {eyebrow}
-        </span>
-      </div>
-      <h2 className="font-sans text-[32px] md:text-[40px] leading-tight font-semibold tracking-[-0.04em] text-[#171717] mb-6">
+      <span className="block font-mono text-[14px] leading-[20px] tracking-[1.4px] text-white uppercase mb-[16px]">
+        {eyebrow}
+      </span>
+      <h2 className="text-[48px] leading-[48px] font-normal tracking-[-1.2px] text-white mb-[24px]">
         {title}
       </h2>
       {children && (
-        <div className="font-sans font-normal text-[16px] text-[#a1a1a1] leading-relaxed">
+        <div className="text-[18px] leading-[28px] text-[#dadbdf] font-normal m-0">
           {children}
         </div>
       )}
