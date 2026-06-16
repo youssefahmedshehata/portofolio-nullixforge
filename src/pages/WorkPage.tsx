@@ -4,6 +4,17 @@ import { ContactCTA } from '../components/ContactCTA';
 
 const ALL_SYSTEMS = [
   {
+    category: "Customer Experience Analytics",
+    title: "Arabic Voice-of-Customer Analyzer",
+    status: "Diagnostic Report / POC",
+    problem: "E-commerce management struggled with fragmented Arabic customer feedback across app reviews, support tickets, and WhatsApp. Manual reading of thousands of comments to extract problems was impossible, leading to guesswork regarding customer churn and declining ratings.",
+    process: "We architected an Arabic-first data pipeline to analyze batches of raw text from CSV and Excel exports. The system performs dialect-aware Arabic text normalization, aspect-based sentiment classification, intent detection, and topic discovery to map complaints to specific operational teams.",
+    result: "Businesses receive an executive dashboard and a diagnostic report detailing top complaint themes, sentiment distribution, and specific root causes of issues. Management can now make fast, data-driven decisions to resolve pinpointed issues (e.g., shipping delays, payment failures) and save wasted marketing budgets.",
+    tags: ["#ArabicNLP", "#VoiceOfCustomer", "#ECommerceIntelligence", "#OperationalInsights"],
+    cta: "View Case Study →",
+    link: "#/work/arabic-voice-of-customer-analyzer"
+  },
+  {
     category: "Healthcare Infrastructure",
     title: "CareGrid Clinic OS",
     status: "Deployed System / Featured Case Study",
@@ -122,7 +133,7 @@ export function WorkPage() {
                   <p className="text-[16px] text-white font-normal leading-relaxed">{system.result}</p>
                 </div>
                 <div className="pt-6 border-t border-[#212327]">
-                  <a href="#/contact" className="flex items-center gap-2 font-mono text-[14px] text-white hover:text-white/80 transition-colors uppercase tracking-wider">
+                  <a href={system.link || "#/contact"} className="flex items-center gap-2 font-mono text-[14px] text-white hover:text-white/80 transition-colors uppercase tracking-wider">
                     {system.cta}
                   </a>
                 </div>

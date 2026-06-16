@@ -11,6 +11,8 @@ import { WorkPage } from './pages/WorkPage';
 import { ApproachPage } from './pages/ApproachPage';
 import { ServicesPage } from './pages/ServicesPage';
 import { ContactPage } from './pages/ContactPage';
+import { ArabicVOCPage } from './pages/ArabicVOCPage';
+import { ArabicVOCDemoPage } from './pages/ArabicVOCDemoPage';
 
 function useHashLocation() {
   const [loc, setLoc] = useState(window.location.hash || '#/');
@@ -27,6 +29,8 @@ export default function App() {
   
   let Page = HomePage;
   if (hash === '#/work') Page = WorkPage;
+  else if (hash === '#/work/arabic-voice-of-customer-analyzer') Page = ArabicVOCPage;
+  else if (hash === '#/work/arabic-voice-of-customer-analyzer/poc-demo') Page = ArabicVOCDemoPage;
   else if (hash === '#/approach') Page = ApproachPage;
   else if (hash === '#/services') Page = ServicesPage;
   else if (hash === '#/contact') Page = ContactPage;
