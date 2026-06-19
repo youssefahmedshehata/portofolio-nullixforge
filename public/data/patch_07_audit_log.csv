@@ -1,0 +1,2 @@
+timestamp_utc,section,check_name,status,severity,expected,observed,action_if_fail
+2026-06-19T16:09:27.428662+00:00,FINAL_TEST,test_metrics_generated,PASS,CRITICAL,Test evaluated once,Done,-

@@ -1,0 +1,10 @@
+true_class,predicted_class,count
+Slight Injury,Slight Injury,1155
+Slight Injury,Serious Injury,276
+Slight Injury,Fatal injury,132
+Serious Injury,Slight Injury,139
+Serious Injury,Serious Injury,109
+Serious Injury,Fatal injury,13
+Fatal injury,Slight Injury,10
+Fatal injury,Serious Injury,4
+Fatal injury,Fatal injury,10

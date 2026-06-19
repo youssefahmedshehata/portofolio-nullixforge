@@ -4,6 +4,17 @@ import { ContactCTA } from '../components/ContactCTA';
 
 const ALL_SYSTEMS = [
   {
+    category: "Enterprise AI Architecture",
+    title: "Operational Risk Triage Engine",
+    status: "Deployed System / Featured Case Study",
+    problem: "Enterprise AI models frequently achieve 90%+ lab accuracy but completely collapse in production. The vulnerability lies in chaotic, real-world environments—plagued by extreme class imbalances (1% critical risks) and massive data voids (36% missingness)—where traditional predictive models create fatal blind spots, false alarms, and severe operational friction.",
+    process: "We architected a resilient, zero-leakage AI Pipeline. Rather than artificially imputing missing data, we engineered \"voids\" into golden predictive signals. Through Surgical Feature Engineering, Strict QA Gates, and SHAP-based diagnostics, we isolated catastrophic risks, tamed outlier anomalies, and completely eradicated administrative noise from the decision-making process.",
+    result: "Raw, fragmented data is now molded into complete operational certainty. The system transcends traditional prediction to function as a hyper-sensitive strategic radar—filtering out 85% of routine noise to surgically pinpoint rare, critical threats. Decision-makers are empowered with transparent, production-proof intelligence.",
+    tags: ["#AIArchitecture", "#RiskTriage", "#ZeroLeakage", "#OperationalCertainty"],
+    cta: "View Case Study →",
+    link: "#/work/Operational-Risk-Triage-Engine"
+  },
+  {
     category: "Customer Experience Analytics",
     title: "Arabic Voice-of-Customer Analyzer",
     status: "Diagnostic Report / POC",
