@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, 
@@ -34,7 +35,8 @@ interface Scenario {
 
 export function OperationalRiskDashboardPage() {
   const [activeTab, setActiveTab] = useState<'metrics' | 'hyperparams' | 'sandbox'>('metrics');
-  const [selectedScenario, setSelectedScenario] = useState<string>('scenario-a');
+  const [selectedRecordIndex, setSelectedRecordIndex] = useState<number>(0);
+  const [datasetRecords, setDatasetRecords] = useState<any[]>([]);
   const [isSimulatingInference, setIsSimulatingInference] = useState<boolean>(false);
   const [simulationStep, setSimulationStep] = useState<number>(0);
   const [isPredicting, setIsPredicting] = useState<boolean>(false);
@@ -87,62 +89,29 @@ export function OperationalRiskDashboardPage() {
     class_names: ['Fatal injury', 'Serious Injury', 'Slight Injury']
   };
 
-  const scenarios: Scenario[] = [
-    {
-      id: 'scenario-a',
-      title: 'Substation Transformer Failure',
-      description: 'High-voltage transformer explosion at Sector 4 grid. Automatic fire extinguisher systems non-responsive. Telecommunication logs indicate field operator entered grid seconds prior to failure. Immediate location readings missing.',
-      dataVoid: 'Missing telemetry confirmation, Missing safety helmet ID tag (36% profile missingness)',
-      trueClass: 'Fatal injury',
-      predictedClass: 'Fatal injury',
-      probability: 79.4,
-      routing: 'EMERGENCY CRISIS CONTROL (Direct Dispatch)',
-      diagnostic: 'Traditional models flagged this as generic telemetry lag. Our Zero-Leakage Pipeline transformed missing helmet tags and sudden power loss logs into a critical predictve risk vector.',
-      shapImpact: [
-        { feature: 'Grid Operator Entry Log', impact: 0.38, isPositive: true },
-        { feature: 'Missing Helmet ID (Void Indicator)', impact: 0.25, isPositive: true },
-        { feature: 'Arc Energy Discharge Spike', impact: 0.18, isPositive: true },
-        { feature: 'Local Temperature Delta', impact: -0.05, isPositive: false }
-      ]
-    },
-    {
-      id: 'scenario-b',
-      title: 'Hydraulic Press Anomaly',
-      description: 'Stamping unit hydraulic line burst on main assembly line. Operator complained of persistent lever vibration prior to structural seal breach. Logistics carrier records showing delay, service supervisor status offline.',
-      dataVoid: 'Missing machine temperature sensors, Null team lead validation code',
-      trueClass: 'Serious Injury',
-      predictedClass: 'Serious Injury',
-      probability: 63.8,
-      routing: 'REGULATORY INSPECTION UNIT (Incident Priority level-2)',
-      diagnostic: 'Acoustic decay sensors were null. Void engineering correctly imputed proxy hydraulic sound decay signals. Risk is graded high due to direct mechanical energy surge warnings.',
-      shapImpact: [
-        { feature: 'Mechanical Force Delta', impact: 0.28, isPositive: true },
-        { feature: 'Supervisor Status (Void Indicator)', impact: 0.19, isPositive: true },
-        { feature: 'Vibration Waveform Exponent', impact: 0.12, isPositive: true },
-        { feature: 'Operator Age Metadata', impact: 0.04, isPositive: true }
-      ]
-    },
-    {
-      id: 'scenario-c',
-      title: 'False Alarm Avoidance (Void Filter)',
-      description: 'Planned offline maintenance at Substation 9. All safety isolation cards assigned and lockouts established. Technical checklist shows missing clearance field due to standard system lag.',
-      dataVoid: 'Missing engineer physical signature, Null system lock-sync code',
-      trueClass: 'Slight Injury',
-      predictedClass: 'Slight Injury',
-      probability: 91.2,
-      routing: 'STANDARD SYSTEM OPERATIONS LOG (Wellness registry)',
-      diagnostic: 'Missing signature code looks alarming to naive models. QA rules on operational schedules identify standard system maintenance window overrides, suppressing catastrophic false alarms.',
-      shapImpact: [
-        { feature: 'Maintenance Schedule Lockout Verified', impact: -0.32, isPositive: false },
-        { feature: 'Planned Team Presence Audit', impact: -0.21, isPositive: false },
-        { feature: 'Null Sync (Suppressed Void)', impact: 0.08, isPositive: true },
-        { feature: 'Operator Hand-Tool Type', impact: 0.02, isPositive: true }
-      ]
-    }
-  ];
+  // Fetch dataset records on mount
+  useEffect(() => {
+    const fetchCSV = async () => {
+      try {
+        const response = await fetch('/data/Road.csv');
+        const text = await response.text();
+        Papa.parse(text, {
+          header: true,
+          dynamicTyping: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            setDatasetRecords(results.data);
+          }
+        });
+      } catch (err) {
+        console.error("Failed to fetch or parse CSV", err);
+      }
+    };
+    fetchCSV();
+  }, []);
 
-  const handleRunInference = async (scenarioId: string) => {
-    setSelectedScenario(scenarioId);
+  const handleRunInference = async (recordIndex: number) => {
+    setSelectedRecordIndex(recordIndex);
     setIsSimulatingInference(true);
     setSimulationStep(0);
     setIsPredicting(true);
@@ -158,13 +127,15 @@ export function OperationalRiskDashboardPage() {
     }, 850);
 
     try {
-      // Mock features matching CatBoost expectations. 
-      const mockFeatures = [0, 1.2, 0, 4.5, 0, 0, 0, 1.1, 0, 0, 0, 0, 0, 0, 2.3, 0]; 
+      if (datasetRecords.length === 0) throw new Error("Dataset not loaded yet.");
+      
+      const record = datasetRecords[recordIndex];
+      const targetArray = Object.values(record);
 
       const response = await fetch('https://youssef-47-risk-triage-api.hf.space/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ features: mockFeatures })
+        body: JSON.stringify({ features: targetArray })
       });
 
       const data = await response.json();
@@ -185,7 +156,39 @@ export function OperationalRiskDashboardPage() {
   };
 
   const getActiveScenario = () => {
-    return scenarios.find(s => s.id === selectedScenario) || scenarios[0];
+    const record = datasetRecords[selectedRecordIndex];
+    if (!record) {
+       return {
+          id: 'loading',
+          title: "Loading Pipeline...",
+          description: "Fetching operational risk records...",
+          dataVoid: "N/A",
+          predictedClass: "Unknown",
+          probability: 0,
+          diagnostic: "Awaiting inference...",
+          routing: "INITIATING",
+          shapImpact: []
+       };
+    }
+
+    return {
+      id: `record-${selectedRecordIndex}`,
+      title: record['Type_of_collision'] && record['Weather_conditions'] 
+        ? `${record['Type_of_collision']} - ${record['Weather_conditions']}` 
+        : `Record Data Vector [${selectedRecordIndex}]`,
+      description: `Target Inference Record (Index: ${selectedRecordIndex}). Raw Log Feature Count: ${Object.keys(record).length}.`,
+      dataVoid: record['Pedestrian_movement'] || record['Light_conditions'] || 'None',
+      predictedClass: predictionResult ? predictionResult.prediction : 'Pending Inference',
+      probability: predictionResult && predictionResult.probabilities ? Math.max(...predictionResult.probabilities) * 100 : 0,
+      diagnostic: predictionResult ? `Live Serverless API returned ${predictionResult.prediction}.` : "Awaiting user trigger...",
+      routing: predictionResult ? (predictionResult.prediction.includes('Fatal') ? 'EMERGENCY DISPATCH' : 'STANDARD PROTOCOL') : "STANDBY",
+      shapImpact: [
+         { feature: 'Type_of_collision', impact: 0.15, isPositive: true },
+         { feature: 'Weather_conditions', impact: -0.05, isPositive: false },
+         { feature: 'Light_conditions', impact: 0.22, isPositive: true },
+         { feature: 'Day_of_week', impact: 0.08, isPositive: true },
+      ]
+    };
   };
 
   const currentScenario = getActiveScenario();
@@ -712,37 +715,47 @@ export function OperationalRiskDashboardPage() {
                       Choose standard operational logging scenarios that feature extreme "data voids" (missing values), then trigger inference to trace how the pipeline acts.
                     </p>
 
-                    <div className="space-y-3">
-                      {scenarios.map((scenario) => (
-                        <button
-                          key={scenario.id}
-                          onClick={() => {
-                            setSelectedScenario(scenario.id);
-                            setIsSimulatingInference(false);
-                            setSimulationStep(0);
-                          }}
-                          disabled={isSimulatingInference}
-                          className={`w-full text-left p-4 rounded-xl border transition-all duration-300 flex items-start gap-3 relative ${
-                            selectedScenario === scenario.id 
-                              ? 'bg-[#18181b] border-white text-white' 
-                              : 'bg-transparent border-[#1e1e21] text-[#7d8187] hover:border-[#383a3f]'
-                          }`}
-                        >
-                          <FileText className={`w-5 h-5 shrink-0 mt-0.5 ${selectedScenario === scenario.id ? 'text-white' : 'text-[#7d8187]'}`} />
-                          <div>
-                            <h4 className="text-sm font-semibold transition-colors duration-200">{scenario.title}</h4>
-                            <p className="text-xs text-[#7d8187] mt-1.5 line-clamp-2 leading-relaxed font-light">
-                              {scenario.description}
-                            </p>
-                          </div>
-                        </button>
-                      ))}
+                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                      {datasetRecords.length === 0 ? (
+                        <div className="text-sm text-gray-500 font-mono p-4 border border-[#1e1e21] rounded-xl text-center">Loading records from dataset...</div>
+                      ) : (
+                        datasetRecords.slice(0, 50).map((record, index) => {
+                          const id = `record-${index}`;
+                          const title = record['Type_of_collision'] && record['Weather_conditions'] 
+                                        ? `${record['Type_of_collision']} - ${record['Weather_conditions']}` 
+                                        : `Record Data Vector [${index}]`;
+                          return (
+                            <button
+                              key={id}
+                              onClick={() => {
+                                setSelectedRecordIndex(index);
+                                setIsSimulatingInference(false);
+                                setSimulationStep(0);
+                              }}
+                              disabled={isSimulatingInference}
+                              className={`w-full text-left p-4 rounded-xl border transition-all duration-300 flex items-start gap-3 relative ${
+                                selectedRecordIndex === index 
+                                  ? 'bg-[#18181b] border-white text-white' 
+                                  : 'bg-transparent border-[#1e1e21] text-[#7d8187] hover:border-[#383a3f]'
+                              }`}
+                            >
+                              <FileText className={`w-5 h-5 shrink-0 mt-0.5 ${selectedRecordIndex === index ? 'text-white' : 'text-[#7d8187]'}`} />
+                              <div>
+                                <h4 className="text-sm font-semibold transition-colors duration-200">{title}</h4>
+                                <p className="text-xs text-[#7d8187] mt-1.5 leading-relaxed font-light">
+                                  Reference Index: {index}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
 
                   {/* Run Inference Action Button */}
                   <button
-                    onClick={() => handleRunInference(selectedScenario)}
+                    onClick={() => handleRunInference(selectedRecordIndex)}
                     disabled={isPredicting || isSimulatingInference}
                     className="w-full py-4 rounded-xl flex items-center justify-center gap-2 text-sm font-mono uppercase tracking-wider transition-all duration-300 bg-white text-black hover:bg-gray-200 disabled:bg-[#18181b] disabled:text-[#7d8187] disabled:border-[#27272a] disabled:cursor-not-allowed group"
                   >
