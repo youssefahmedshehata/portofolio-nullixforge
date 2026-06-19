@@ -161,7 +161,7 @@ export function OperationalRiskDashboardPage() {
       // Mock features matching CatBoost expectations. 
       const mockFeatures = [0, 1.2, 0, 4.5, 0, 0, 0, 1.1, 0, 0, 0, 0, 0, 0, 2.3, 0]; 
 
-      const response = await fetch('/api/predict', {
+      const response = await fetch('https://youssef-47-risk-triage-api.hf.space/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ features: mockFeatures })
