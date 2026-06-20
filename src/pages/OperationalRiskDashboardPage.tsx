@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
+import { List, ListItem, Card } from '@tremor/react';
 import { 
   ArrowLeft, 
   LayoutGrid, 
@@ -40,7 +40,7 @@ export function OperationalRiskDashboardPage() {
   const [isSimulatingInference, setIsSimulatingInference] = useState<boolean>(false);
   const [simulationStep, setSimulationStep] = useState<number>(0);
   const [isPredicting, setIsPredicting] = useState<boolean>(false);
-  const [predictionResult, setPredictionResult] = useState<{prediction: string, probabilities: number[]} | null>(null);
+  const [predictionResult, setPredictionResult] = useState<{prediction: string, probabilities?: number[], confidence?: number, top_shap_signals?: {feature: string, value: number}[]} | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [customLogText, setCustomLogText] = useState<string>('');
   const [matrixHoveredCell, setMatrixHoveredCell] = useState<{trueC: string, predC: string, count: number} | null>(null);
@@ -91,23 +91,19 @@ export function OperationalRiskDashboardPage() {
 
   // Fetch dataset records on mount
   useEffect(() => {
-    const fetchCSV = async () => {
+    const fetchDataset = async () => {
       try {
-        const response = await fetch('/data/Road.csv');
+        const response = await fetch('/data/smart_demo_dataset.json');
         const text = await response.text();
-        Papa.parse(text, {
-          header: true,
-          dynamicTyping: true,
-          skipEmptyLines: true,
-          complete: (results) => {
-            setDatasetRecords(results.data);
-          }
-        });
+        // The JSON exported might contain invalid tokens like NaN. Replace them with null to make it valid JSON.
+        const sanitizedText = text.replace(/\bNaN\b/g, 'null');
+        const data = JSON.parse(sanitizedText);
+        setDatasetRecords(data);
       } catch (err) {
-        console.error("Failed to fetch or parse CSV", err);
+        console.error("Failed to fetch/parse JSON", err);
       }
     };
-    fetchCSV();
+    fetchDataset();
   }, []);
 
   const handleRunInference = async (recordIndex: number) => {
@@ -130,12 +126,11 @@ export function OperationalRiskDashboardPage() {
       if (datasetRecords.length === 0) throw new Error("Dataset not loaded yet.");
       
       const record = datasetRecords[recordIndex];
-      const targetArray = Object.values(record);
 
-      const response = await fetch('https://youssef-47-risk-triage-api.hf.space/predict', {
+      const response = await fetch('https://youssef-47-risk-triage-production.hf.space/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ features: targetArray })
+        body: JSON.stringify({ features: record.modelPayload })
       });
 
       const data = await response.json();
@@ -155,6 +150,18 @@ export function OperationalRiskDashboardPage() {
     }
   };
 
+  // قاموس الترجمة الاستخباراتي الدقيق 100% (High-Impact Telemetry Mapping)
+  const FEATURE_MAP: Record<string, string> = {
+    "Feature_001": "Incident Time",                // وقت الحادث
+    "Feature_012": "Accident Zone",                // منطقة الحادث
+    "Feature_019": "Weather State",                // حالة الطقس
+    "Feature_020": "Collision Dynamics",           // ديناميكية التصادم
+    "Feature_031": "Primary Cause (Identified)",   // السبب المباشر (مبهر جداً للعملاء)
+    "Feature_003": "Driver Age Profile",           // الفئة العمرية للسائق
+    "Feature_007": "Driver Experience",            // خبرة السائق
+    "Feature_022": "Casualties Recorded"           // عدد الإصابات
+  };
+
   const getActiveScenario = () => {
     const record = datasetRecords[selectedRecordIndex];
     if (!record) {
@@ -163,6 +170,8 @@ export function OperationalRiskDashboardPage() {
           title: "Loading Pipeline...",
           description: "Fetching operational risk records...",
           dataVoid: "N/A",
+          actualSeverity: "N/A",
+          displayData: {},
           predictedClass: "Unknown",
           probability: 0,
           diagnostic: "Awaiting inference...",
@@ -171,23 +180,24 @@ export function OperationalRiskDashboardPage() {
        };
     }
 
+    const totalShapAbs = predictionResult && predictionResult.top_shap_signals 
+      ? predictionResult.top_shap_signals.reduce((sum: number, sig: any) => sum + Math.abs(Number(sig.value)), 0) 
+      : 0;
+
     return {
-      id: `record-${selectedRecordIndex}`,
-      title: record['Type_of_collision'] && record['Weather_conditions'] 
-        ? `${record['Type_of_collision']} - ${record['Weather_conditions']}` 
-        : `Record Data Vector [${selectedRecordIndex}]`,
-      description: `Target Inference Record (Index: ${selectedRecordIndex}). Raw Log Feature Count: ${Object.keys(record).length}.`,
-      dataVoid: record['Pedestrian_movement'] || record['Light_conditions'] || 'None',
+      ...record,
+      title: `Accident ID: ${record.id} | Ground Truth: ${record.actualSeverity}`,
+      description: `Target Inference Record (ID: ${record.id}).`,
+      dataVoid: "N/A",
       predictedClass: predictionResult ? predictionResult.prediction : 'Pending Inference',
-      probability: predictionResult && predictionResult.probabilities ? Math.max(...predictionResult.probabilities) * 100 : 0,
+      probability: predictionResult && predictionResult.confidence !== undefined ? predictionResult.confidence * 100 : (predictionResult && predictionResult.probabilities ? Math.max(...predictionResult.probabilities) * 100 : 0),
       diagnostic: predictionResult ? `Live Serverless API returned ${predictionResult.prediction}.` : "Awaiting user trigger...",
       routing: predictionResult ? (predictionResult.prediction.includes('Fatal') ? 'EMERGENCY DISPATCH' : 'STANDARD PROTOCOL') : "STANDBY",
-      shapImpact: [
-         { feature: 'Type_of_collision', impact: 0.15, isPositive: true },
-         { feature: 'Weather_conditions', impact: -0.05, isPositive: false },
-         { feature: 'Light_conditions', impact: 0.22, isPositive: true },
-         { feature: 'Day_of_week', impact: 0.08, isPositive: true },
-      ]
+      shapImpact: predictionResult && predictionResult.top_shap_signals ? predictionResult.top_shap_signals.map((signal: any) => ({
+         feature: FEATURE_MAP[signal.feature] || signal.feature,
+         impact: totalShapAbs > 0 ? (Number(signal.value) / totalShapAbs) : 0,
+         isPositive: Number(signal.value) > 0
+      })) : []
     };
   };
 
@@ -721,9 +731,7 @@ export function OperationalRiskDashboardPage() {
                       ) : (
                         datasetRecords.slice(0, 50).map((record, index) => {
                           const id = `record-${index}`;
-                          const title = record['Type_of_collision'] && record['Weather_conditions'] 
-                                        ? `${record['Type_of_collision']} - ${record['Weather_conditions']}` 
-                                        : `Record Data Vector [${index}]`;
+                          const title = `Accident ID: ${record.id} | Ground Truth: ${record.actualSeverity}`;
                           return (
                             <button
                               key={id}
@@ -752,6 +760,28 @@ export function OperationalRiskDashboardPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* Incident Briefing Card */}
+                  {currentScenario && currentScenario.displayData && Object.keys(currentScenario.displayData).length > 0 && (
+                    <Card className="bg-[#0a0a0b] border border-[#1e1e21] rounded-2xl p-6 ring-0">
+                      <h3 className="font-mono text-[12px] text-[#7d8187] uppercase tracking-wider mb-4 border-b border-[#1e1e21] pb-2">
+                        Incident Briefing Card
+                      </h3>
+                      <List>
+                        {Object.keys(FEATURE_MAP).map((featureKey) => {
+                          if (currentScenario.displayData[featureKey] !== undefined) {
+                            return (
+                              <ListItem key={featureKey} className="py-2.5">
+                                <span className="text-sm font-medium text-white">{FEATURE_MAP[featureKey]}</span>
+                                <span className="text-sm font-mono text-[#7d8187]">{currentScenario.displayData[featureKey]}</span>
+                              </ListItem>
+                            );
+                          }
+                          return null;
+                        })}
+                      </List>
+                    </Card>
+                  )}
 
                   {/* Run Inference Action Button */}
                   <button
@@ -837,7 +867,7 @@ export function OperationalRiskDashboardPage() {
                         {(predictionResult || apiError) && (
                           <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                             {apiError ? (
-                              <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-start gap-3">
+                               <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-start gap-3">
                                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                                 <div>
                                   <h4 className="text-sm font-semibold">Serverless Inference Error</h4>
@@ -846,29 +876,30 @@ export function OperationalRiskDashboardPage() {
                               </div>
                             ) : predictionResult && (
                               <div className={`p-4 rounded-xl border flex items-start gap-3 transition-colors ${
-                                predictionResult.prediction === 'Fatal injury' || predictionResult.prediction === 'Fatal Injury' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' :
-                                predictionResult.prediction === 'Serious Injury' ? 'bg-orange-500/10 border-orange-500/20 text-orange-400' :
-                                'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                predictionResult.prediction.toLowerCase().trim() === currentScenario.actualSeverity?.toLowerCase().trim() 
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                                  : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                               }`}>
                                 <Activity className="w-5 h-5 shrink-0 mt-0.5" />
                                 <div className="w-full">
                                   <div className="flex justify-between items-center">
                                     <h4 className="text-sm font-semibold uppercase tracking-wider font-mono">Live Serverless Prediction</h4>
                                     <span className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase tracking-widest ${
-                                      predictionResult.prediction === 'Fatal injury' || predictionResult.prediction === 'Fatal Injury' ? 'bg-rose-500/20 border-rose-500/30 text-rose-400' :
-                                      predictionResult.prediction === 'Serious Injury' ? 'bg-orange-500/20 border-orange-500/30 text-orange-400' :
-                                      'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                                      predictionResult.prediction.toLowerCase().trim() === currentScenario.actualSeverity?.toLowerCase().trim() 
+                                        ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
+                                        : 'bg-amber-500/20 border-amber-500/30 text-amber-400'
                                     }`}>Real-time</span>
                                   </div>
-                                  <p className="text-xl font-light mt-1.5 text-white">
-                                    Classified as: <strong className="font-semibold">{predictionResult.prediction}</strong>
-                                  </p>
+                                  <div className="mt-3 space-y-2 font-mono">
+                                    <p className="text-sm text-white font-light">AI Prediction: <strong className="font-semibold ml-2">{predictionResult.prediction}</strong></p>
+                                    <p className="text-sm text-white font-light">Ground Truth: <strong className="font-semibold ml-2">{currentScenario.actualSeverity}</strong></p>
+                                  </div>
                                   {predictionResult.probabilities && (
-                                    <div className="mt-3 grid grid-cols-3 gap-2">
+                                    <div className="mt-4 grid grid-cols-3 gap-2">
                                       {predictionResult.probabilities.map((prob, idx) => (
                                         <div key={idx} className="bg-black/40 p-2 rounded-lg border border-white/5">
                                           <div className="text-[10px] font-mono text-[#7d8187] uppercase">Class {idx}</div>
-                                          <div className="text-xs font-mono font-medium mt-0.5">{(prob * 100).toFixed(1)}%</div>
+                                          <div className="text-xs font-mono font-medium mt-0.5 text-white">{(prob * 100).toFixed(1)}%</div>
                                         </div>
                                       ))}
                                     </div>
@@ -896,7 +927,7 @@ export function OperationalRiskDashboardPage() {
                           <div className="bg-[#111113] p-4 rounded-xl border border-[#1d1d20]">
                             <span className="block text-[10px] font-mono text-[#7d8187] uppercase">Triage Certainty Probability</span>
                             <div className="flex items-end gap-2 mt-1.5">
-                              <h4 className="text-2xl font-mono font-light text-white leading-none">{currentScenario.probability}%</h4>
+                              <h4 className="text-2xl font-mono font-light text-white leading-none">{currentScenario.probability.toFixed(1)}%</h4>
                               <span className="text-[10px] text-[#7d8187] mb-0.5">confidence</span>
                             </div>
                             {/* Bar slider */}
@@ -925,30 +956,34 @@ export function OperationalRiskDashboardPage() {
                         <div className="space-y-3">
                           <h4 className="text-xs font-mono font-bold text-gray-300 uppercase tracking-widest">Local SHAP Diagnostic attributions</h4>
                           <div className="space-y-2 bg-black rounded-xl p-4 border border-[#212327]">
-                            {currentScenario.shapImpact.map((item, idx) => (
+                            {currentScenario.shapImpact.length > 0 ? currentScenario.shapImpact.map((item: any, idx: number) => (
                               <div key={idx} className="space-y-1">
                                 <div className="flex justify-between items-center text-[10px] font-mono">
                                   <span className="text-gray-400">{item.feature}</span>
-                                  <span className={item.isPositive ? 'text-red-400' : 'text-blue-400'}>
-                                    {item.isPositive ? '+' : ''}{(item.impact * 100).toFixed(0)}%
+                                  <span className={item.isPositive ? 'text-rose-500' : 'text-emerald-500'}>
+                                    {item.isPositive ? '+' : ''}{(item.impact * 100).toFixed(1)}%
                                   </span>
                                 </div>
                                 <div className="w-full bg-[#1e1e21] h-1.5 rounded flex relative">
                                   {item.isPositive ? (
                                     <div 
-                                      className="h-1.5 rounded bg-red-500 absolute left-1/2" 
-                                      style={{ width: `${item.impact * 100}%` }}
+                                      className="h-1.5 rounded bg-rose-500 absolute left-1/2" 
+                                      style={{ width: `${Math.min(item.impact * 100, 50)}%` }}
                                     />
                                   ) : (
                                     <div 
-                                      className="h-1.5 rounded bg-blue-500 absolute" 
-                                      style={{ width: `${Math.abs(item.impact) * 100}%`, right: '50%' }}
+                                      className="h-1.5 rounded bg-emerald-500 absolute" 
+                                      style={{ width: `${Math.min(Math.abs(item.impact) * 100, 50)}%`, right: '50%' }}
                                     />
                                   )}
                                   <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-gray-500" />
                                 </div>
                               </div>
-                            ))}
+                            )) : (
+                              <div className="text-center text-xs text-gray-500 font-mono py-2">
+                                Run inference to fetch diagnostic signals...
+                              </div>
+                            )}
                           </div>
                         </div>
                       </motion.div>
