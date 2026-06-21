@@ -208,21 +208,13 @@ export function OperationalRiskDashboardPage() {
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       transition={{ duration: 0.5 }}
-      className="bg-[#000000] min-h-screen text-[#ffffff] font-sans pt-24 pb-12 [font-feature-settings:'ss03']"
+      className="bg-[#000000] min-h-screen text-[#ffffff] font-sans pt-[120px] pb-12 [font-feature-settings:'ss03']"
     >
       <div className="max-w-[1440px] mx-auto px-6 md:px-12">
         
         {/* Header section */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-8 border-b border-[#1e1e21]">
           <div>
-            <div className="flex items-center gap-3 text-[#7d8187] font-mono text-[12px] uppercase tracking-wider mb-2">
-              <a href="#/work/Operational-Risk-Triage-Engine" className="hover:text-white flex items-center gap-1.5 transition-colors">
-                <ArrowLeft className="w-3.5 h-3.5" />
-                Operational Risk Triage Engine
-              </a>
-              <span>/</span>
-              <span className="text-white font-semibold">Triage & Diagnostics Suite</span>
-            </div>
             <h1 className="text-3xl font-light tracking-tight text-white leading-tight flex items-center gap-3">
               Operational Risk Diagnostics
               <span className="text-xs font-mono px-2 py-0.5 rounded bg-[#ef4444]/15 border border-[#ef4444]/20 text-[#ef4444] uppercase tracking-widest font-bold">

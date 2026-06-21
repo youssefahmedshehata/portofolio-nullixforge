@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { SiteHeader } from './components/SiteHeader';
 import { SiteFooter } from './components/SiteFooter';
+import { Breadcrumb } from './components/Breadcrumb';
 import { HomePage } from './pages/HomePage';
 import { WorkPage } from './pages/WorkPage';
 import { ApproachPage } from './pages/ApproachPage';
@@ -42,7 +43,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans flex flex-col">
       <SiteHeader currentPath={hash} />
-      <main className="flex-grow">
+      <main className="flex-grow relative">
+        <Breadcrumb currentPath={hash} />
         <Page />
       </main>
       <SiteFooter />
